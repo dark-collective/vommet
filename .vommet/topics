@@ -1,0 +1,31 @@
+# Vommet topic branches: work that is not on main yet.
+# testing = main + a --no-ff merge of each, in this order.
+#
+#   <branch>                 based on main
+#   <branch> after <parent>  based on another topic (use this when two topics
+#                            touch the same lines, so the resolution lives in
+#                            the child branch instead of being redone on every
+#                            sync; the parent must be listed first)
+#
+# Remove a line when its branch merges into main.
+chore/branding
+chore/fork-settings
+ci/version-label
+ci/android-apk
+ci/flatpak
+feat/room-picker-search
+feat/telegram-sticker-import
+feat/room-banners
+feat/desktop-copy-selection
+feat/media-mosaic after feat/desktop-copy-selection
+feat/space-remove-room
+feat/voice-messages
+feat/personal-packs after feat/telegram-sticker-import
+fix/own-push-gateway
+ci/fork-invariants after ci/version-label
+fix/linux-app-id
+feat/sso-first-login
+feat/gradient-themes
+ci/integration-tests after ci/fork-invariants
+fix/notification-fallback
+feat/discover after ci/integration-tests
