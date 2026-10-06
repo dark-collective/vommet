@@ -1,0 +1,135 @@
+name: build
+
+# Fork CI (Forgejo Actions). Upstream's GitHub workflows under .github/ are kept
+# for reference but never run here. This mirrors upstream static-analysis.yml +
+# the Linux leg of build.yml: format check, codegen, analyze, release build, and
+# the Linux bundle as a downloadable artifact so the fork can be tried without a
+# local Flutter toolchain.
+on:
+  push:
+    # sync/topic/** and sync/state are bookkeeping for the upstream sync
+    # (.vommet/README.md); their content is built as part of sync/testing.
+    branches: ['**', '!sync/topic/**', '!sync/state']
+  pull_request:
+
+# Shares the runner host with the voice bridge's live E2E harness; a Flutter +
+# Rust build alongside an audio scenario garbles its timing scores, so serialize
+# on the same fixed group nether-voicebridge uses.
+concurrency:
+  group: live-host
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  linux:
+    runs-on: docker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Upstream's apt list (release.yml, Linux leg) in Debian/Ubuntu -dev
+      # spelling, plus what the Rust side (flutter_rust_bridge via cargokit) needs.
+      # lld + llvm: Flutter's native-assets build looks for ld.lld and llvm-ar next to clang
+      # (/usr/lib/llvm-14/bin on this Ubuntu 22.04 image) and fails without it.
+      # Fork invariant: no new dependency on Commet's servers (incl. via an
+      # upstream sync). Cheap, so it runs before the toolchain install.
+      - name: No unlisted Commet hosts
+        run: .vommet/check-commet-hosts.sh
+
+      - name: Install native build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl xz-utils git unzip zip build-essential clang lld llvm cmake ninja-build pkg-config \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev
+
+      - name: Cache Flutter SDK, pub cache and Rust toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/flutter
+            ~/.pub-cache
+            ~/.rustup
+            ~/.cargo
+          key: flutter-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.lock', 'Cargo.lock') }}
+          restore-keys: |
+            flutter-${{ env.FLUTTER_VERSION }}-
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }} (if not cached)
+        run: |
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            rm -rf "$HOME/flutter"
+            curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" | tar -xJ -C "$HOME"
+          fi
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory '*'
+
+      - name: Install Rust toolchain (if not cached)
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Flutter
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          flutter --version
+          cargo --version
+
+      - name: Check code style
+        run: |
+          cd $PROJECT_PATH
+          flutter pub get
+          rm -rf lib/generated
+          dart format -o none --show all --set-exit-if-changed .
+
+      - name: Code generation
+        run: |
+          cd $PROJECT_PATH
+          dart run scripts/codegen.dart
+
+      - name: Analyze
+        run: |
+          cd $PROJECT_PATH
+          dart analyze
+
+      # Pure-Dart unit tests (no homeserver needed). Upstream runs these via
+      # scripts/unit-test.sh with homeserver defines that none of them use.
+      - name: Unit tests
+        run: |
+          cd $PROJECT_PATH
+          flutter test unit_test
+
+      - name: Build Linux (release)
+        # Vommet: production GTK app id (im.nether.chat, not .develop), as
+        # upstream's release workflow does; docks match it to the desktop file.
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd $PROJECT_PATH
+          flutter build linux --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=${{ github.sha }} \
+            --dart-define VERSION_TAG=${{ github.ref_name }}.${{ github.run_number }} \
+            --dart-define BUILD_DETAIL=ci \
+            --dart-define BUILD_DATE=$(date +%s000)
+
+      - name: Package bundle
+        run: |
+          tar -C $PROJECT_PATH/build/linux/x64/release -czf vommet-linux-x64.tar.gz bundle
+          ls -la vommet-linux-x64.tar.gz
+
+      # act_runner does not support the upload-artifact@v4 service protocol
+      # (same note as nether-voicebridge e2e.yml); v3 works.
+      - name: Upload Linux bundle
+        uses: actions/upload-artifact@v3
+        with:
+          name: vommet-linux-x64
+          path: vommet-linux-x64.tar.gz
+          retention-days: 14

@@ -1,0 +1,74 @@
+# Vommet: Windows x64 build. Runs only on the GitHub mirror
+# (github.com/dark-collective/vommet) — Forgejo reads .forgejo/workflows and
+# never sees this file, and Flutter cannot cross-build Windows from Linux.
+# Upstream's build.yml/release.yml stay untouched (they only fire on PRs and
+# GitHub releases, which the push-only mirror never has).
+name: vommet-windows
+
+on:
+  push:
+    branches: [testing, ci/windows, ci/windows-preview]
+    tags: ['testing-*']
+  workflow_dispatch:
+
+concurrency:
+  group: vommet-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    if: github.repository != 'commetchat/commet'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: 'stable'
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            commet/build/windows/x64/plugins
+          key: cargo-windows-${{ hashFiles('Cargo.lock', 'pubspec.lock') }}
+          restore-keys: cargo-windows-
+
+      - name: Code Generation
+        run: |
+          flutter config --enable-windows-desktop
+          cd .\commet
+          git config --global core.longpaths true
+          dart run scripts/codegen.dart
+
+      - name: Build Windows App
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd .\commet
+          $date = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          flutter build windows --release `
+            --dart-define BUILD_MODE=release `
+            --dart-define PLATFORM=windows `
+            --dart-define GIT_HASH=${{ github.sha }} `
+            --dart-define VERSION_TAG=${{ github.ref_name }}.${{ github.run_number }} `
+            --dart-define BUILD_DETAIL=ci `
+            --dart-define BUILD_DATE=$date
+
+      - name: Archive
+        run: tar -a -c -f vommet-windows-x64.zip -C .\commet\build\windows\x64\runner\ Release
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vommet-windows-x64
+          path: .\vommet-windows-x64.zip
