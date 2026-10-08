@@ -1,0 +1,128 @@
+{
+  "$comment": "Vommet's \"What's new\" list, shown after an update (every entry newer than the build the user last opened) and under Settings › About › What's New. The sync session adds ONE entry at the TOP when it cuts a testing build: \"date\" = the cut time in UTC (ISO 8601, e.g. 2026-10-07T21:40:00Z), \"changes\" = one short sentence per change testers can notice, in plain language (what changed for them, not how). Leave out internal-only changes (CI, refactors, tests). Newest entry first.",
+  "entries": [
+    {
+      "date": "2026-10-08T16:57:00Z",
+      "changes": [
+        "Faster startup: Vommet no longer sometimes waits up to 30 seconds for the first sync.",
+        "The member list no longer shows someone you're talking with under \"Offline\" with a green dot.",
+        "On servers that don't share presence, people show as \"Unknown\" (with a hollow dot) instead of all looking offline.",
+        "Voice rooms show a small speaker badge on their avatar, so you can tell them apart even when they have their own picture.",
+        "Discord-style layout experiment: the member panel gets Members, Media, Files and Pins tabs, member rows show who's in voice or sharing their screen, and on phones the room's name and actions share one row.",
+        "The sliding sync experiment now says that unread counts don't work yet on Synapse servers (like matrix.org)."
+      ]
+    },
+    {
+      "date": "2026-10-08T15:08:00Z",
+      "changes": [
+        "Press and hold a sticker to preview it; slide to another sticker, and let go to close. A tap still sends.",
+        "Stickers that failed to load no longer stay blank until you restart; Vommet tries again.",
+        "Turning the profile and audio quick controls on or off during a call applies your output volume right away."
+      ]
+    },
+    {
+      "date": "2026-10-08T14:26:00Z",
+      "changes": [
+        "The Experiments page is tidier: experiments are grouped by topic, there is one warning at the top, experiments that need a restart say so, and Vommet offers to restart when you leave the page after changing one."
+      ]
+    },
+    {
+      "date": "2026-10-08T12:43:00Z",
+      "changes": [
+        "After joining a room on another server, missing older messages are loaded automatically; \"Reload History\" in the room menu fetches them again.",
+        "Android: when editing a message, you can drag the selection handles back again after selecting backwards."
+      ]
+    },
+    {
+      "date": "2026-10-08T12:07:00Z",
+      "changes": [
+        "Messages show as soon as they can be decrypted, without reopening the room.",
+        "Restoring your key backup now downloads the keys, so older encrypted messages become readable.",
+        "Copy image: right-click (or long-press) a picture to put it on your clipboard and paste it anywhere.",
+        "Forward a message to other rooms, as an experiment (Settings › Experiments › Chat experiments).",
+        "Unsent messages are kept per room and thread while Vommet is open, as an experiment.",
+        "Send while offline, as an experiment: messages you send without a connection go out by themselves when you're back online, even after closing the app."
+      ]
+    },
+    {
+      "date": "2026-10-08T10:03:00Z",
+      "changes": [
+        "Pin any room to the sidebar, as an experiment (Settings › Experiments).",
+        "Unread direct messages first, newest at the top, as an experiment (Settings › Experiments)."
+      ]
+    },
+    {
+      "date": "2026-10-08T05:57:00Z",
+      "changes": [
+        "Discord-style layout, as an experiment (Settings › Experiments): spaces and rooms get Discord-style headers and menus, the member list is grouped by who's online, and panes can be resized and banners collapsed.",
+        "A Banner glow setting for how space and room banners blend into the page.",
+        "Your space order in the sidebar is kept after a restart (it wasn't saved when you dragged a space to a new place).",
+        "Fewer errors when you leave a room while it is still loading."
+      ]
+    },
+    {
+      "date": "2026-10-08T04:45:00Z",
+      "changes": [
+        "Notifications: Vommet now lists the UnifiedPush apps on your phone, shows which one it uses (you can change it) and tells you if none is installed.",
+        "Right-click (or long-press) an enlarged picture to save it; tap a person's banner or avatar in their profile, or a space's avatar in its summary, to see it full size. \"Download\" is now \"Save as…\".",
+        "Your profile card (click your name) shows your banner and your current status.",
+        "Clearing your bio from the profile menu works (the confirmation no longer closes by itself).",
+        "Drag spaces and folders in the sidebar to reorder them on desktop, as an experiment (Settings › Experiments).",
+        "The version under Settings › About is now the tester release's name, like testing-2026-10-08."
+      ]
+    },
+    {
+      "date": "2026-10-08T01:40:00Z",
+      "changes": [
+        "Start a call in any chat from the room menu (Call), as part of the calls-in-chats experiment; incoming calls there ring like other calls. The older one-to-one call is still there as \"Classic call\".",
+        "Calls across homeservers, as an experiment: hear people whose call runs on another server's media server.",
+        "Explore says \"no public spaces\" (or rooms) when that's what's missing, instead of always \"no public rooms\"."
+      ]
+    },
+    {
+      "date": "2026-10-07T23:06:00Z",
+      "changes": [
+        "Android: should no longer crash when someone starts or switches a screen share (please tell us if it still does).",
+        "Android: screen sharing should now start properly. It shares your whole screen (sharing a single app isn't possible on Android).",
+        "Fixed: Vommet no longer crashes as soon as it opens (this broke the first three builds of 10-07).",
+        "Sign in with your server's own login page in the browser, on servers that offer it (like nether.im).",
+        "Noise suppression for your microphone in calls, as an experiment: Settings › Experiments.",
+        "Screen sharing on Linux lets you choose which sound to include: none, all apps, or one app, now including apps like Spotify and mpv. Shared sound is now in stereo.",
+        "Only one screen share at a time: starting a new one replaces the old one, and Stop ends it completely.",
+        "When someone switches what they share, the enlarged view follows the new stream instead of going blank.",
+        "Room banners now show as a header above the chat, like space banners, and open full size when you click them.",
+        "Discord-style call controls: a \"Voice Connected\" card, and mute and deafen buttons with device menus next to your name.",
+        "Profile and audio quick controls, as an experiment: a profile card with status and presence, microphone and output volume sliders, and a Voice Settings shortcut.",
+        "matrix: links from other apps open the room or profile in Vommet (and matrix.to links on Android).",
+        "Commet supporter badges are shown as-is, without a donation check at startup.",
+        "Joining a call retries once by itself if the network drops for a moment.",
+        "Message timestamps, as an experiment (Settings › Experiments): type <t:UNIX> or $[UNIX] and everyone sees the time in their own time zone.",
+        "Calls in ordinary chats, as an experiment (Settings › Experiments): when people start an Element Call in a group chat or DM, Vommet shows who's in it and a Join button.",
+        "Fixed: right after signing in, rooms no longer show up twice in the room list.",
+        "This \"What's New\" page: after an update, Vommet lists what changed since the version you last used."
+      ]
+    },
+    {
+      "date": "2026-10-07T18:00:00Z",
+      "changes": [
+        "Direct messages you accept in Vommet now show up under Direct Messages instead of as a group.",
+        "Right-click (or long-press) a chat to mark it as a direct message, or to undo that.",
+        "Change your display name from the menu on your own profile. Every menu option now explains what it does.",
+        "Screen sharing can include sound.",
+        "Optional diagnostics: you can choose to send timings and error types (never your messages) to help us find bugs. Change it any time in Settings › Privacy."
+      ]
+    },
+    {
+      "date": "2026-10-06T22:00:00Z",
+      "changes": [
+        "A welcome screen after your first sign-in, with a button to join the Vommet room.",
+        "Big accounts start faster: the room list shows up sooner and stays responsive while the rest loads.",
+        "Importing a sticker pack no longer adds it to your favourites, and every pack in your sticker rooms shows up in the picker.",
+        "Stickers in the picker are sharp on phones.",
+        "Space banners show the whole picture while loading and stay sharp after a restart.",
+        "When the last message in a room was deleted, the room list now says \"Message deleted\".",
+        "In calls, people who join after you no longer appear as an endless loading tile."
+      ]
+    }
+  ]
+}
