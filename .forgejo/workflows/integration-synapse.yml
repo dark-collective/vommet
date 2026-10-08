@@ -1,0 +1,109 @@
+name: integration-synapse
+
+# Nightly, never per push: the "Retry Decrypt" / history-gap variants of
+# integration_test/matrix/utd_vanish_test.dart against Synapse, whose "faster
+# joins" backfill a federated room's history in the background (#102). Those
+# variants race that backfill, so they live here, apart from the per-push
+# integration suite, and a separate workflow keeps their status contexts
+# ("integration-synapse / ...") out of any "integration" required-check prefix.
+# Synapse runs inside the job container from a pinned PyPI release
+# (.vommet/it/synapse.sh), so it shares the tests' localhost.
+#
+# Forgejo only schedules workflows from the default branch; until this file is
+# on main, run it by hand (workflow_dispatch on testing).
+on:
+  schedule:
+    - cron: '11 4 * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'UTD_ONLY: ";"-separated variant name prefixes'
+        default: 'federated:'
+      repeat:
+        description: 'UTD_REPEAT: runs of each variant'
+        default: '1'
+
+# Same host as the voice bridge's live E2E harness; never overlap it.
+concurrency:
+  group: live-host
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  TUWUNEL_VERSION: v1.9.3
+  # Pinned like Tuwunel; 1.162 still supports the CI image's Python 3.10.
+  SYNAPSE_VERSION: 1.162.0
+
+jobs:
+  utd:
+    runs-on: docker
+    container:
+      image: 100.64.0.13:3000/nether/vommet-ci:3.41.9-20261007
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'testing' || github.sha }}
+
+      - name: Cache pub cache, Rust registry and the Synapse venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/synapse-venv-${{ env.SYNAPSE_VERSION }}
+          key: it-synapse-${{ env.FLUTTER_VERSION }}-${{ env.SYNAPSE_VERSION }}-${{ hashFiles('pubspec.lock', 'Cargo.lock') }}
+          restore-keys: |
+            it-synapse-${{ env.FLUTTER_VERSION }}-${{ env.SYNAPSE_VERSION }}-
+
+      # See integration.yml: a stale cached mirror breaks pub get.
+      - name: Refresh cached git dependencies
+        run: |
+          for d in "$HOME"/.pub-cache/git/cache/*/; do
+            [ -d "$d" ] || continue
+            git --git-dir="$d" fetch --quiet --prune || rm -rf "$d"
+          done
+
+      - name: Tools from the CI image
+        run: |
+          tw="$HOME/tuwunel-$TUWUNEL_VERSION"
+          [ -x "$HOME/flutter/bin/flutter" ] && [ -x "$tw" ] || { echo "CI image lacks Flutter or Tuwunel $TUWUNEL_VERSION" >&2; exit 1; }
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "TUWUNEL=$tw" >> "$GITHUB_ENV"
+          git config --global --add safe.directory '*'
+
+      - name: Configure Flutter and generate code
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      # A on a second Tuwunel (127.0.0.1:8449), B and the app on Synapse.
+      - name: UTD variants against Synapse
+        env:
+          IT_HS: synapse
+          IT_FEDERATION: '1'
+          UTD_ONLY: ${{ inputs.only || 'federated:' }}
+          UTD_REPEAT: ${{ inputs.repeat || '1' }}
+        run: .vommet/it/run.sh integration_test/utd_vanish_runner.dart
+
+      # Every unread-dot variant, the app and the sender on Synapse; the
+      # sliding sync ones depend on client-side unread counts (Vommet issue 112).
+      - name: Unread dot variants against Synapse
+        if: always()
+        env:
+          IT_HS: synapse
+          OUT: ${{ github.workspace }}/it-out/unread-dot
+        run: .vommet/it/run.sh integration_test/unread_dot_runner.dart
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-synapse-${{ github.run_number }}
+          path: it-out/
+          retention-days: 14
