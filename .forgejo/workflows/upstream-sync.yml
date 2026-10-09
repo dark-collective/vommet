@@ -1,0 +1,65 @@
+name: upstream-sync
+
+# Daily: rebase the fork onto Commet's main as candidates under sync/* (see
+# .vommet/README.md). Nothing published moves here; the candidates' own CI
+# runs, and upstream-promote moves main, the topics and testing once it's green.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild candidates even if main already contains upstream (restack topics)'
+        type: boolean
+        default: false
+
+# git only, no build: stays out of the live-host group so it never waits
+# behind the voice bridge harness.
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+
+jobs:
+  candidate:
+    runs-on: docker
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git jq curl ca-certificates >/dev/null
+
+      # SYNC_TOKEN (a user token with write access), not the job token: pushes
+      # made with the job token don't trigger workflows, and the candidates
+      # must run CI.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Cut candidates
+        id: sync
+        run: |
+          git config user.name 'Vommet sync'
+          git config user.email 'sync@nether.codes'
+          set +e
+          .vommet/sync.sh candidate ${{ inputs.force && '--force' || '' }}
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report on the sync issue
+        if: steps.sync.outputs.changed == 'true' || steps.sync.outputs.rc != '0'
+        env:
+          TOKEN: ${{ secrets.SYNC_TOKEN }}
+          RC: ${{ steps.sync.outputs.rc }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+        run: .vommet/report-issue.sh candidate
+
+      - name: Fail on conflict or error
+        if: steps.sync.outputs.rc != '0'
+        run: exit 1
