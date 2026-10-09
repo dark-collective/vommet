@@ -1,0 +1,132 @@
+name: integration
+
+# The Linux desktop app driven by Flutter integration_test against a
+# throwaway Tuwunel homeserver at https://localhost, under Xvfb, with a screen
+# recording kept as an artifact (.vommet/it/). Gates upstream-promote on
+# sync/testing; runs nightly on testing.
+on:
+  push:
+    branches: [main, testing, sync/main, sync/testing, 'ci/integration*']
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Test file under commet/ (default: integration_test/vommet_runner.dart)'
+        default: 'integration_test/vommet_runner.dart'
+
+# Same host as the voice bridge's live E2E harness; never overlap it.
+concurrency:
+  group: live-host
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  # Pinned like the other version-sensitive deps; prod runs Tuwunel too.
+  TUWUNEL_VERSION: v1.9.3
+
+jobs:
+  # Skip the heavy job when this commit (or the green testing that contains
+  # it) already passed it, e.g. testing/main/topics right after a promote.
+  check:
+    runs-on: docker
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          if [ -x .vommet/ci/already-passed.sh ]; then .vommet/ci/already-passed.sh "integration / linux"
+          else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+
+  linux:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    runs-on: docker
+    # Prebuilt image with the apt packages, Flutter, Rust, the Android SDK and
+    # Tuwunel (.vommet/ci/Dockerfile); the runner uses it locally (force_pull off).
+    container:
+      image: 100.64.0.13:3000/nether/vommet-ci:3.41.9-20261007
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The nightly run tests testing, not the default branch; otherwise the
+          # exact commit (a queued sync/testing run outlives the branch, which
+          # promote deletes, so checking out by name failed).
+          ref: ${{ github.event_name == 'schedule' && 'testing' || github.sha }}
+
+      - name: Install native build and test dependencies
+        run: |
+          if dpkg -s libgtk-3-dev clang >/dev/null 2>&1; then echo 'packages from the CI image'; exit 0; fi
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl xz-utils git unzip zip build-essential clang lld llvm cmake ninja-build pkg-config \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
+            xvfb jq openssl zstd dbus dbus-x11 gnome-keyring dunst
+
+      - name: Cache Flutter SDK, pub cache, Rust toolchain and Tuwunel
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: it-ci-image-${{ env.FLUTTER_VERSION }}-tuwunel-${{ env.TUWUNEL_VERSION }}-${{ hashFiles('pubspec.lock', 'Cargo.lock') }}
+          restore-keys: |
+            it-ci-image-${{ env.FLUTTER_VERSION }}-tuwunel-${{ env.TUWUNEL_VERSION }}-
+
+      # pub checks a git dependency's locked commit in its cached mirror before
+      # fetching; a mirror older than that commit (restored from an older cache
+      # via restore-keys) makes it silently drop the package's dependencies and
+      # codegen fails on package_graph.json. Refresh the mirrors first.
+      - name: Refresh cached git dependencies
+        run: |
+          for d in "$HOME"/.pub-cache/git/cache/*/; do
+            [ -d "$d" ] || continue
+            git --git-dir="$d" fetch --quiet --prune || rm -rf "$d"
+          done
+
+      - name: Install Flutter, Rust and Tuwunel (if not cached)
+        run: |
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            rm -rf "$HOME/flutter"
+            curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" | tar -xJ -C "$HOME"
+          fi
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          tw="$HOME/tuwunel-$TUWUNEL_VERSION"
+          if [ ! -x "$tw" ]; then
+            curl -fsSL "https://github.com/matrix-construct/tuwunel/releases/download/$TUWUNEL_VERSION/$TUWUNEL_VERSION-release-all-x86_64-v1-linux-gnu-tuwunel.zst" | zstd -d -o "$tw"
+            chmod +x "$tw"
+          fi
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "TUWUNEL=$tw" >> "$GITHUB_ENV"
+          git config --global --add safe.directory '*'
+
+      - name: Configure Flutter and generate code
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Integration tests
+        run: .vommet/it/run.sh "${{ inputs.target || 'integration_test/vommet_runner.dart' }}"
+
+      # act_runner does not support the upload-artifact@v4 service protocol; v3 works.
+      - name: Upload screen recording and logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-${{ github.run_number }}
+          path: it-out/
+          retention-days: 14
