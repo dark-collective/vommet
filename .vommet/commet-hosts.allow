@@ -1,0 +1,27 @@
+# Every place the code names one of Commet's hosts (*.commet.chat), with why
+# it's acceptable. .vommet/check-commet-hosts.sh fails CI on any (file, host)
+# pair not listed here, so an upstream sync can't silently add a dependency on
+# Commet's infrastructure. Markdown, .github/ and .vommet/ are not scanned.
+#
+# <file> <host> <reason>
+commet/lib/client/components/push_notification/android/firebase_push_notifier.dart push.commet.chat Google-services build only; the fork ships none
+commet/lib/config/preferences.dart push.commet.chat Google-services branch + the comment explaining the fork's default (#42)
+commet/lib/ui/pages/settings/categories/app/notification_settings/notification_settings_page.dart push.commet.chat comment only
+commet/lib/client/matrix/components/profile/matrix_profile_component.dart data.commet.chat badge signing key id (@awards:data.commet.chat); local signature check, no request
+commet/lib/client/matrix/components/widgets/matrix_widget_component.dart calendar-widget.commet.chat recognises Commet's calendar widget URL in rooms that already use it
+commet/lib/config/global_config.dart calendar-widget.commet.chat default calendar widget host, loaded only when a user adds a calendar widget (TODO: own host)
+commet/lib/config/build_config.dart stripe-rewards.commet.chat donation-rewards API; the donation flow that reaches it is removed (chore/fork-settings)
+commet/lib/ui/pages/settings/settings_page.dart commet.chat donation page link; the entry is removed in the fork
+commet/lib/ui/pages/main/main_page.dart commet.chat comment only
+commet/lib/ui/pages/settings/app_settings_page.dart commet.chat comment only
+commet/lib/ui/organisms/room_widgets/room_widgets_view.dart commet.chat documentation link, opened by the user
+commet/lib/ui/pages/settings/categories/app/shortcut_settings/outsource_shortcut_settings_page.dart commet.chat documentation link, opened by the user
+commet/lib/ui/pages/settings/categories/developer/developer_settings_page.dart commet.chat developer-settings test URL
+commet/lib/ui/pages/get_or_create_room/calendar_views.dart commet.chat example user ids in a preview, no request
+commet/lib/utils/update_checker.dart commet.chat update checker; disabled in the fork (hasReleaseFeed = false)
+commet/lib/utils/update_checker.dart data.commet.chat update feed; disabled in the fork (hasReleaseFeed = false)
+commet/macos/Runner/Configs/AppInfo.xcconfig commet.chat copyright string
+commet/windows/runner/Runner.rc commet.chat copyright string
+widgets/calendar/lib/main.dart commet.chat link in the separately hosted calendar widget app
+commet/lib/client/matrix/components/push_notifications/pusher_housekeeping.dart push.commet.chat recognises old Commet pushers to flag/remove them; never contacted
+commet/unit_test/pusher_housekeeping_test.dart push.commet.chat test fixture for recognising old Commet pushers; never contacted
