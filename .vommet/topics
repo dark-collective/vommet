@@ -1,0 +1,153 @@
+# Vommet topic branches: work that is not on main yet.
+# testing = main + a --no-ff merge of each, in this order.
+#
+#   <branch>                 based on main
+#   <branch> after <parent>  based on another topic (use this when two topics
+#                            touch the same lines, so the resolution lives in
+#                            the child branch instead of being redone on every
+#                            sync; the parent must be listed first)
+#
+# Remove a line when its branch merges into main.
+chore/branding
+chore/fork-settings
+fix/commet-badges-display-only after chore/fork-settings
+ci/version-label
+ci/android-apk
+ci/flatpak
+feat/room-picker-search
+feat/forward-messages after feat/room-picker-search
+feat/message-drafts after feat/forward-messages
+feat/telegram-sticker-import after chore/fork-settings
+feat/room-banners
+feat/banner-headers after feat/room-banners
+fix/space-avatar-viewer after feat/banner-headers
+feat/banner-panes after fix/space-avatar-viewer
+feat/member-panel-tabs after feat/banner-panes
+fix/member-list-recently-active after feat/banner-panes
+fix/member-list-unknown-presence after fix/member-list-recently-active
+feat/desktop-copy-selection
+feat/media-mosaic after feat/desktop-copy-selection
+feat/space-remove-room
+feat/voice-messages
+feat/personal-packs after feat/telegram-sticker-import
+fix/own-push-gateway
+ci/fork-invariants after ci/version-label
+fix/linux-app-id
+feat/sso-first-login
+feat/gradient-themes
+ci/integration-tests after ci/fork-invariants
+fix/notification-fallback
+feat/discover after ci/integration-tests
+fix/directory-empty-message after feat/discover
+feat/sliding-sync
+fix/voip-late-joiner-tiles
+fix/sticker-picker-resolution
+fix/image-fullres-cache after fix/sticker-picker-resolution
+fix/missing-media after fix/image-fullres-cache
+fix/sticker-picker-blanks after fix/missing-media
+ci/integration-mosaic after feat/discover
+fix/room-preview-deleted
+perf/startup-postload-queue
+fix/banner-thumbnail-scale
+feat/welcome-first-login
+fix/startup-splash-until-loaded after perf/startup-postload-queue
+ci/integration-banners after ci/integration-mosaic
+ci/utd-integration after ci/integration-banners
+ci/integration-dm-order after ci/utd-integration
+ci/unread-dot-integration after ci/utd-integration
+perf/lazy-home-room-list after perf/startup-postload-queue
+perf/postload-keep-ui-responsive after perf/startup-postload-queue
+feat/screenshare-audio-upstream after fix/voip-late-joiner-tiles
+feat/screenshare-audio-linux after feat/screenshare-audio-upstream
+fix/accept-dm-invite
+feat/telemetry after perf/lazy-home-room-list
+fix/first-sync-wait after feat/telemetry
+feat/dm-toggle-and-menu-tooltips
+fix/profile-nickname-others after feat/dm-toggle-and-menu-tooltips
+feat/voice-isolation after feat/screenshare-audio-linux
+fix/android-onaddtrack-race after feat/voice-isolation
+feat/voice-quick-controls after feat/voice-isolation
+feat/quick-profile-controls after feat/voice-quick-controls
+feat/quick-audio-output after feat/quick-profile-controls
+fix/quick-card-banner after feat/quick-audio-output
+fix/quick-card-status after fix/quick-card-banner
+fix/quick-audio-toggle-refresh after fix/quick-card-status
+feat/native-oidc after feat/sso-first-login
+feat/telemetry-capture after feat/telemetry
+fix/telemetry-consent-look after feat/telemetry
+feat/telemetry-exit-reason after feat/telemetry-capture
+feat/telemetry-native-trace after feat/telemetry-exit-reason
+feat/telemetry-timeline after feat/telemetry-native-trace
+feat/telemetry-call-leave after feat/telemetry-timeline
+feat/telemetry-errcode after feat/telemetry-call-leave
+feat/telemetry-crypto after feat/telemetry-errcode
+fix/telemetry-version-label after feat/telemetry-crypto
+feat/telemetry-notify after fix/telemetry-version-label
+feat/telemetry-experiments after feat/telemetry-notify
+fix/telemetry-experiments-enum after feat/telemetry-experiments
+feat/whats-new after feat/telemetry-native-trace
+perf/lazy-side-room-lists
+ci/xplat after ci/integration-tests
+feat/screenshare-audio-picker after feat/screenshare-audio-linux
+fix/screenshare-audio-app-names after feat/screenshare-audio-picker
+fix/screenshare-audio-wayland-order after fix/screenshare-audio-app-names
+feat/screenshare-audio-stereo after fix/screenshare-audio-wayland-order
+fix/screenshare-one-at-a-time after feat/screenshare-audio-stereo
+fix/screenshare-desktop-no-apm after fix/screenshare-one-at-a-time
+fix/call-view-follow-replaced-stream after fix/screenshare-desktop-no-apm
+fix/android-screenshare-errors after fix/call-view-follow-replaced-stream
+fix/startup-launch-test after ci/integration-tests
+fix/room-view-dispose-races
+feat/matrix-links
+fix/call-join-retry
+feat/msc3160-timestamps
+feat/offline-sending after feat/msc3160-timestamps
+feat/room-calls after feat/msc3160-timestamps
+feat/room-calls-start after feat/room-calls
+feat/multi-sfu after feat/room-calls-start
+fix/room-list-duplicates
+fix/profile-menu-clear
+fix/sidebar-drag-desktop
+feat/sidebar-pinned-rooms after fix/sidebar-drag-desktop
+fix/history-gap-after-join after feat/sidebar-pinned-rooms
+feat/image-save-and-viewer
+feat/copy-image after feat/image-save-and-viewer
+fix/unifiedpush-distributor-picker
+fix/unifiedpush-startup-check after fix/unifiedpush-distributor-picker
+fix/unifiedpush-count-pushes after fix/unifiedpush-startup-check
+fix/decrypt-display-refresh
+fix/restore-backup-download
+fix/edit-selection-mobile
+feat/voice-room-badge
+feat/sidebar-subspace-guides after feat/voice-room-badge
+perf/profile-cache
+feat/android-share-target
+fix/dm-order-after-accept
+fix/long-name-edit-overflow
+fix/html-font-color
+fix/notify-silence-active-chat
+fix/push-account-routing
+fix/pusher-housekeeping
+feat/telemetry-notify-counts after fix/telemetry-experiments-enum
+feat/telemetry-name-tag after feat/telemetry-notify-counts
+fix/sharp-profile-avatar
+fix/call-keyboard-strip after feat/multi-sfu
+fix/selection-tap-outside after fix/edit-selection-mobile
+fix/space-icon-opens-home
+feat/space-page-subspace-cards
+feat/manage-space-rooms after feat/banner-panes
+fix/linux-image-fullres after fix/sticker-picker-blanks
+feat/lightbox-gallery after feat/copy-image
+feat/strip-metadata-explained
+feat/encryption-markers after fix/edit-selection-mobile
+feat/dm-trust-warnings after feat/encryption-markers
+feat/experiments-reset-defaults
+feat/voice-room-chat-access after feat/sidebar-subspace-guides
+feat/media-grid-actions after feat/member-panel-tabs
+feat/secure-setup
+feat/room-threads after feat/member-panel-tabs
+feat/block-users after fix/profile-nickname-others
+ci/integration-threads-block after ci/integration-banners
+feat/org-italics
+feat/call-button-states after feat/room-calls-start
+feat/format-popup after feat/org-italics

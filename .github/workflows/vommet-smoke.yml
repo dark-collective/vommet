@@ -1,0 +1,254 @@
+# Vommet: cross-platform smoke suite (#78) on GitHub-hosted runners, via the
+# one-way copy to github.com/dark-collective/vommet (.forgejo/workflows/
+# github-copy.yml). Forgejo never reads this file. GitHub runners keep the
+# emulator/Windows load off our own host, where CI starves the voice bridge.
+#
+# The full integration suite runs on Linux only (.forgejo/workflows/
+# integration.yml); this runs integration_test/smoke_runner.dart, a handful of
+# checks of the native surface (storage, HTTP/TLS, crypto library, image send).
+name: vommet-smoke
+
+on:
+  push:
+    branches: [testing, 'ci/xplat*']
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: vommet-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  TUWUNEL_VERSION: v1.9.3
+  USER1_NAME: alice
+  USER1_PW: AliceInWonderland
+  USER2_NAME: bob
+  USER2_PW: CanWeFixIt
+  WORK: /tmp/vommet-it
+
+jobs:
+  android:
+    if: github.repository != 'commetchat/commet'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Nightly tests testing, not the default branch.
+          ref: ${{ github.event_name == 'schedule' && 'testing' || github.sha }}
+          submodules: 'true'
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Rust Android target
+        run: rustup target add x86_64-linux-android
+
+      - name: Cache cargo and Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: smoke-android-${{ hashFiles('Cargo.lock', 'commet/pubspec.lock', 'commet/android/**/*.gradle') }}
+          restore-keys: smoke-android-
+
+      - name: Homeserver (Tuwunel at https://localhost)
+        run: |
+          sudo apt-get install -y --no-install-recommends zstd jq >/dev/null
+          tw="$RUNNER_TEMP/tuwunel"
+          curl -fsSL "https://github.com/matrix-construct/tuwunel/releases/download/$TUWUNEL_VERSION/$TUWUNEL_VERSION-release-all-x86_64-v1-linux-gnu-tuwunel.zst" | zstd -d -o "$tw"
+          chmod +x "$tw"
+          sudo -E TUWUNEL="$tw" .vommet/it/homeserver.sh
+          sudo chmod -R a+r "$WORK"
+
+      - name: Code generation
+        run: |
+          flutter config --no-analytics
+          cd commet
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Smoke suite on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          # The default 2 GB went offline mid-run on testing's larger app.
+          ram-size: 4096M
+          cores: 4
+          # swiftshader_indirect: the emulator process died during the testing
+          # build's app start (no qemu left, no OOM kill, 8 GB free); trying
+          # the ANGLE-on-SwiftShader renderer instead.
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
+          script: .vommet/it/android-smoke.sh emulator-5554
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-android-${{ github.run_number }}
+          path: it-out/
+          retention-days: 14
+
+  # Microphone capture (integration_test/capture_runner.dart): a speech-like
+  # signal fed into a virtual microphone must come out of the app's capture
+  # path with real energy. Linux validates the test itself; Windows is the
+  # native path nobody on the team runs day to day.
+  capture-linux:
+    if: github.repository != 'commetchat/commet'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'testing' || github.sha }}
+          submodules: 'true'
+
+      - name: Native build and audio dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            clang lld cmake ninja-build pkg-config libgtk-3-dev libmpv-dev mpv \
+            libmimalloc-dev libwebkit2gtk-4.1-dev libasound2-dev libpulse-dev \
+            libkeybinder-3.0-dev libglu1-mesa libsecret-1-dev libjsoncpp-dev \
+            xvfb pulseaudio pulseaudio-utils >/dev/null
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: smoke-linux-${{ hashFiles('Cargo.lock', 'commet/pubspec.lock') }}
+          restore-keys: smoke-linux-
+
+      - name: Code generation
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          cd commet
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Capture test
+        run: .vommet/it/capture-linux.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-linux-${{ github.run_number }}
+          path: it-out/
+          retention-days: 14
+
+  capture-windows:
+    if: github.repository != 'commetchat/commet'
+    runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      # LABSN/sound-ci-helpers (BSD-3) for devcon.exe, and the VB-CABLE driver
+      # (VB-Audio donationware, downloaded at run time, not redistributed);
+      # both pinned by hash, as mozilla/cubeb's CI does.
+      SOUND_CI_HELPERS_SHA: 20a2b9bbd21fd005d8fe89933901506dba84ea4e
+      DEVCON_SHA256: 97cff42f8c0fe4fbdf991273159516bf78090625a933c3983ebd6f62284e329a
+      VBCABLE_URL: https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip
+      VBCABLE_SHA256: 66fd0a4d9f4896ff41632b7e3d53892c085c4561f53e8ae8d0f0bc10eedd1cdd
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'testing' || github.sha }}
+          submodules: 'true'
+
+      - name: Virtual microphone (VB-CABLE)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $w = Join-Path $env:RUNNER_TEMP "vbcable"
+          New-Item -ItemType Directory -Force -Path $w | Out-Null
+          $devcon = Join-Path $w "devcon.exe"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/LABSN/sound-ci-helpers/$env:SOUND_CI_HELPERS_SHA/windows/devcon.exe" -OutFile $devcon
+          if ((Get-FileHash -Algorithm SHA256 $devcon).Hash.ToLower() -ne $env:DEVCON_SHA256) { throw "devcon.exe hash mismatch" }
+          $zip = Join-Path $w "vbcable.zip"
+          Invoke-WebRequest -Uri $env:VBCABLE_URL -OutFile $zip -MaximumRetryCount 3 -RetryIntervalSec 2
+          if ((Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower() -ne $env:VBCABLE_SHA256) { throw "VB-CABLE hash mismatch" }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $w "driver")
+          $cat = Join-Path $w "driver\vbaudio_cable64_win7.cat"
+          $cert = (Get-AuthenticodeSignature -FilePath $cat).SignerCertificate
+          if ($null -eq $cert) { throw "no signer certificate" }
+          $cer = Join-Path $w "vbcable.cer"
+          [System.IO.File]::WriteAllBytes($cer, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+          certutil.exe -addstore -f "TrustedPublisher" $cer
+          & $devcon install (Join-Path $w "driver\vbMmeCable64_win7.inf") VBAudioVACWDM
+          if ($LASTEXITCODE -ne 0) { throw "devcon install failed" }
+          New-Item -Force -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" | Out-Null
+          New-ItemProperty -Force -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" -Name LetAppsAccessMicrophone -Value 1 -PropertyType DWord | Out-Null
+          Set-Service Audiosrv -StartupType Automatic
+          Start-Service Audiosrv
+          Get-CimInstance Win32_SoundDevice | Format-Table Name, Status
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: smoke-windows-${{ hashFiles('Cargo.lock', 'commet/pubspec.lock') }}
+          restore-keys: smoke-windows-
+
+      - name: Code generation
+        run: |
+          flutter config --no-analytics --enable-windows-desktop
+          git config --global core.longpaths true
+          cd .\commet
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Capture test
+        shell: pwsh
+        run: .\.vommet\it\capture-windows.ps1
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-windows-${{ github.run_number }}
+          path: it-out/
+          retention-days: 14
