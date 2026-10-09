@@ -1,0 +1,28 @@
+[Desktop Entry]
+Version={{VERSION_TAG}}
+Type=Application
+Name=Vommet
+Comment=Matrix client fork for people who keep ending up back on Discord
+Categories=Utility;Amusement;
+Icon=im.nether.chat
+Exec=vommet %u
+Terminal=false
+StartupWMClass=im.nether.chat
+Actions=ToggleMute;Mute;Unmute
+X-KDE-StartupNotify=false
+StartupNotify=false
+MimeType=x-scheme-handler/commetchat;x-scheme-handler/matrix;
+
+[Desktop Action ToggleMute]
+Name=Toggle Mute
+Exec=vommet --shortcut toggle_mute
+X-KDE-Shortcuts=Alt+M
+
+[Desktop Action Mute]
+Name=Mute
+Exec=vommet --shortcut mute
+
+
+[Desktop Action Unmute]
+Name=Unmute
+Exec=vommet --shortcut unmute
