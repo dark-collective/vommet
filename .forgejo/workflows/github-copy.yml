@@ -1,0 +1,148 @@
+name: github-copy
+
+# One-way copy of selected branches to GitHub (github.com/dark-collective/vommet),
+# where free runners build the Windows preview and run the cross-platform smoke
+# suite (ci/xplat*). Replaces Forgejo's push
+# mirror: that mirror's remote fetches +refs/*:refs/*, so whenever GitHub
+# rejected a push, git wrote GitHub's old refs back over ours (2026-10-06, the
+# upstream-sync promote was undone that way). This job only ever pushes.
+#
+# Snapshots, not history. The GitHub repo used to be a fork of
+# commetchat/commet, and on a fork a bare "#123" in a commit message links to
+# the PARENT repo. Our messages carry our Forgejo issue numbers and upstream PR
+# numbers, so every force-push of a rebuilt main/testing posted "pushed a
+# commit that referenced this pull request" on Commet's PRs (2026-10-08; the
+# Commet maintainers objected). The repo is now a standalone repo (not a
+# fork, issues off) that only feeds CI there, so it needs no history at
+# all: each branch lands as ONE orphan commit (no parent) whose tree is the
+# Forgejo branch tip's tree and whose message is
+# "Vommet <branch> snapshot of <forgejo sha>", with no '#' anywhere. Fixed
+# identity and dates (the source tip's committer date) make the snapshot sha
+# deterministic, so a re-run with the same input pushes nothing new.
+#
+# Before pushing, a guard fails the job unless every pushed ref is exactly one
+# parentless snapshot commit with a message that can't link an issue (#N,
+# owner/repo#N, GH-N). main is pushed first (on a new, empty repo the first
+# pushed branch becomes the default). After pushing, every GitHub branch that
+# isn't one of this run's snapshots is deleted.
+#
+# Only Forgejo is fetched from. Nothing is ever fetched back from GitHub (only
+# its branch NAMES are listed, for the prune), nothing is mirror-pushed, and
+# no other GitHub repo is contacted.
+#
+# Needs secret GH_COPY_TOKEN (repo or nether org; Forgejo forbids the GITHUB_
+# prefix): fine-grained PAT, contents: read/write on
+# dark-collective/vommet. Without it the job skips.
+on:
+  push:
+    branches: [main, testing, 'ci/windows*', 'ci/xplat*']
+  workflow_dispatch:
+
+concurrency:
+  group: github-copy
+  cancel-in-progress: false
+
+env:
+  TOKEN: ${{ secrets.GH_COPY_TOKEN }}
+  SRC: ${{ github.server_url }}/${{ github.repository }}.git
+  DEST: github.com/dark-collective/vommet.git
+  # sort and comm must agree on order ("fix-x" vs "fix/x").
+  LC_ALL: C
+
+jobs:
+  copy:
+    runs-on: docker
+    steps:
+      # Source branches into refs/src/*; one orphan snapshot per branch is
+      # built into refs/snap/<branch>.
+      - name: Build snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "GH_COPY_TOKEN not set; skipping"; exit 0
+          fi
+          git init -q copy && cd copy
+          git fetch -q --no-tags "$SRC" \
+            '+refs/heads/main:refs/src/main' \
+            '+refs/heads/testing:refs/src/testing' \
+            '+refs/heads/ci/windows*:refs/src/ci/windows*' \
+            '+refs/heads/ci/xplat*:refs/src/ci/xplat*'
+          export GIT_AUTHOR_NAME='Vommet snapshot' GIT_AUTHOR_EMAIL='snapshot@nether.codes'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          for ref in $(git for-each-ref --format='%(refname)' refs/src/); do
+            branch=${ref#refs/src/}
+            tip=$(git rev-parse "$ref")
+            # Raw date ("<epoch> <tz>") of the source tip: same input, same sha.
+            date=$(git log -1 --format=%cd --date=raw "$tip")
+            snap=$(GIT_AUTHOR_DATE="$date" GIT_COMMITTER_DATE="$date" \
+              git -c commit.gpgsign=false commit-tree "$ref^{tree}" \
+                -m "Vommet $branch snapshot of $tip")
+            git update-ref "refs/snap/$branch" "$snap"
+            echo "$branch: snapshot $snap (orphan, source $tip)"
+          done
+
+      # Hard stop before anything reaches GitHub: every pushed ref must be
+      # exactly one parentless commit with a message that can't link an issue.
+      - name: Guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then exit 0; fi
+          cd copy
+          refs=$(git for-each-ref --format='%(refname)' refs/snap/)
+          [ -n "$refs" ] || { echo "::error::no snapshots built"; exit 1; }
+          git rev-parse -q --verify refs/snap/main >/dev/null \
+            || { echo "::error::no main snapshot"; exit 1; }
+          bad=0
+          for ref in $refs; do
+            n=$(git rev-list --count "$ref")
+            if [ "$n" != 1 ]; then
+              echo "::error::$ref carries $n commits, not one orphan snapshot"; bad=1
+            fi
+          done
+          for c in $(git rev-list $refs); do
+            msg=$(git log -1 --format=%B "$c")
+            if grep -Eq '#[0-9]|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|GH-[0-9]' <<<"$msg"; then
+              echo "::error::commit $c has an issue-linking message:"; echo "$msg"; bad=1
+            fi
+          done
+          [ "$bad" = 0 ] || exit 1
+          echo "guard ok: $(wc -w <<<"$refs") orphan snapshot(s), no issue links"
+
+      # Force: a snapshot replaces whatever the branch held. Explicit refspecs
+      # only, refs/snap/* -> refs/heads/*; never a mirror push, never a fetch
+      # back. main goes first so a new, empty repo gets it as default branch.
+      - name: Push snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then exit 0; fi
+          cd copy
+          url="https://x-access-token:${TOKEN}@${DEST}"
+          git push --force "$url" refs/snap/main:refs/heads/main
+          rest=$(git for-each-ref --format='%(refname):refs/heads/%(refname:lstrip=2)' refs/snap/ \
+            | grep -v '^refs/snap/main:' || true)
+          if [ -n "$rest" ]; then
+            git push --force "$url" $rest
+          fi
+
+      # Delete every GitHub branch that isn't one of this run's snapshots
+      # (Forgejo branches since removed, anything pushed by hand). Lists names
+      # only; no objects are fetched from GitHub.
+      - name: Prune GitHub branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then exit 0; fi
+          cd copy
+          url="https://x-access-token:${TOKEN}@${DEST}"
+          keep=$(git for-each-ref --format='refs/heads/%(refname:lstrip=2)' refs/snap/ | sort)
+          have=$(git ls-remote --heads "$url" | cut -f2 | sort)
+          gone=$(comm -13 <(echo "$keep") <(echo "$have") | grep . || true)
+          if [ -z "$gone" ]; then
+            echo "nothing to prune"; exit 0
+          fi
+          echo "deleting $(wc -l <<<"$gone") branch(es) on dark-collective/vommet:"
+          echo "$gone"
+          git push "$url" --delete $gone
