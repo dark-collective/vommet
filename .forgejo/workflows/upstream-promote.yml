@@ -1,0 +1,44 @@
+name: upstream-promote
+
+# Move main, every topic and testing to the sync/* candidates. Refuses unless
+# CI is green on sync/main and sync/testing and nobody pushed to a published
+# branch since the candidates were cut. Old tips are tagged pre-sync/<stamp>/*.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+
+jobs:
+  promote:
+    runs-on: docker
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git jq curl ca-certificates >/dev/null
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Promote
+        id: promote
+        env:
+          FORGEJO_API: ${{ env.API }}
+          FORGEJO_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: .vommet/sync.sh promote
+
+      - name: Close the sync issue
+        env:
+          TOKEN: ${{ secrets.SYNC_TOKEN }}
+          STAMP: ${{ steps.promote.outputs.stamp }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+        run: .vommet/report-issue.sh promoted
