@@ -1,0 +1,23 @@
+name: vommet_voice
+description: >-
+  Android side of Vommet's microphone noise suppression: builds rust/voice
+  (libvommet_voice.so) with cargokit and plugs it into flutter_webrtc's
+  capture post-processing. Desktop links rust/voice into rust_lib_commet.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: im.nether.vommet.voice
+        pluginClass: VoiceFilterPlugin
+        ffiPlugin: true
