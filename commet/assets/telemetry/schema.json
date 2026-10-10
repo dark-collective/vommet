@@ -1,0 +1,366 @@
+{
+  "$comment": "Vommet telemetry schema. The ONLY data the collector stores. Every field is a number, a boolean, a value from a fixed list, or a code identifier (a Dart type name or a source location). There is deliberately no free-text type: message text, media, file names, room/user/event IDs, mxc URLs, server names and exception messages have nowhere to go. The single exception is the envelope's optional `tag`: a name the user types themselves to group their own reports (never filled in automatically), limited to 32 letters, digits, spaces, '-' and '_'. The client keeps an identical copy (commet/assets/telemetry/schema.json); bump `version` and update both when adding events. The collector keeps accepting every older version listed in `accepts`.",
+  "version": 11,
+  "accepts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "limits": { "max_body_bytes": 65536, "max_events": 200 },
+
+  "types": {
+    "ms": { "type": "int", "min": 0, "max": 86400000 },
+    "seconds": { "type": "int", "min": 0, "max": 2592000 },
+    "count": { "type": "int", "min": 0, "max": 1000000 },
+    "bytes": { "type": "int", "min": 0, "max": 1099511627776 },
+    "pixels": { "type": "int", "min": 0, "max": 100000 },
+    "http_status": { "type": "int", "min": 0, "max": 599 },
+    "outcome": { "type": "enum", "values": ["ok", "error", "cancelled"] },
+    "error_kind": {
+      "type": "enum",
+      "values": [
+        "none", "timeout", "network", "tls", "http_4xx", "http_401", "http_403", "http_404",
+        "http_413", "http_429", "http_5xx", "decode", "encode", "encrypt", "decrypt",
+        "permission", "cancelled", "not_found", "unsupported", "too_large", "state",
+        "storage", "out_of_memory", "device_busy", "unknown"
+      ]
+    },
+    "errcode": {
+      "type": "enum",
+      "values": [
+        "M_FORBIDDEN", "M_UNKNOWN_TOKEN", "M_MISSING_TOKEN", "M_USER_LOCKED", "M_USER_SUSPENDED",
+        "M_BAD_JSON", "M_NOT_JSON", "M_NOT_FOUND", "M_LIMIT_EXCEEDED", "M_UNRECOGNIZED",
+        "M_UNKNOWN", "M_UNAUTHORIZED", "M_USER_DEACTIVATED", "M_USER_IN_USE", "M_INVALID_USERNAME",
+        "M_ROOM_IN_USE", "M_INVALID_ROOM_STATE", "M_THREEPID_IN_USE", "M_THREEPID_NOT_FOUND",
+        "M_THREEPID_AUTH_FAILED", "M_THREEPID_DENIED", "M_THREEPID_MEDIUM_NOT_SUPPORTED",
+        "M_SERVER_NOT_TRUSTED", "M_UNSUPPORTED_ROOM_VERSION", "M_INCOMPATIBLE_ROOM_VERSION",
+        "M_BAD_STATE", "M_GUEST_ACCESS_FORBIDDEN", "M_CAPTCHA_NEEDED", "M_CAPTCHA_INVALID",
+        "M_MISSING_PARAM", "M_INVALID_PARAM", "M_TOO_LARGE", "M_EXCLUSIVE", "M_RESOURCE_LIMIT_EXCEEDED",
+        "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM", "M_WEAK_PASSWORD", "M_UNABLE_TO_AUTHORISE_JOIN",
+        "M_UNABLE_TO_GRANT_JOIN", "M_NOT_YET_UPLOADED", "M_CANNOT_OVERWRITE_MEDIA", "M_WRONG_ROOM_KEYS_VERSION",
+        "M_CONNECTION_FAILED", "M_CONNECTION_TIMEOUT", "M_UNACTIONABLE", "M_UNKNOWN_POS",
+        "other"
+      ]
+    },
+    "mime": { "type": "pattern", "pattern": "^[a-z]{1,16}/[a-z0-9][a-z0-9.+-]{0,63}$" },
+    "experiment_key": {
+      "$comment": "Every experiment's preference key; a client reports any other enabled experiment as \"other\". Add a new experiment's key here (client and collector) to see it by name.",
+      "type": "enum",
+      "values": [
+        "experiment_auto_gain_control", "experiment_enabled_e2ee_element_call", "experiment_message_timestamps",
+        "experiment_multi_sfu", "experiment_noise_suppression", "experiment_offline_sending",
+        "experiment_quick_profile_controls", "experiment_room_calls", "experiment_sidebar_desktop_drag",
+        "experiment_sidebar_newest_unread_dms", "experiment_sidebar_pinned_rooms",
+        "experiment_sliding_sync", "vommet_experiment_banner_layout", "vommet_experiment_forward_messages",
+        "vommet_experiment_message_drafts", "other"
+      ]
+    },
+    "experiment_keys": { "type": "list", "max": 64, "item": { "type": "experiment_key" } },
+    "code_type": { "type": "pattern", "pattern": "^[A-Za-z_$][A-Za-z0-9_$<>, ?]{0,79}$" },
+    "code_name": { "type": "pattern", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
+    "code_frames": {
+      "type": "list", "max": 40,
+      "item": { "type": "pattern", "pattern": "^(package:[a-z0-9_]{1,64}/[A-Za-z0-9_/.-]{1,160}\\.dart|dart:[a-z_]{1,32}(/[a-z_]{1,64}\\.dart)?):[0-9]{1,6}( [A-Za-z0-9_$.<>]{1,120})?$" }
+    },
+    "java_type": { "type": "pattern", "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]{0,159}$" },
+    "java_frames": {
+      "type": "list", "max": 25,
+      "item": { "type": "pattern", "pattern": "^[A-Za-z_$][A-Za-z0-9_$.<>-]{0,199}:[0-9]{1,6}$" }
+    },
+    "timers": {
+      "type": "list", "max": 64,
+      "item": {
+        "type": "object",
+        "fields": {
+          "name": { "type": "code_name", "required": true },
+          "calls": { "type": "count", "required": true },
+          "total_ms": { "type": "ms", "required": true }
+        }
+      }
+    },
+    "feature": {
+      "type": "enum",
+      "values": [
+        "voice_message", "sticker_import", "personal_packs", "explore", "voice_isolation",
+        "screenshare", "screenshare_audio", "media_mosaic", "room_banner", "gradient_theme",
+        "sliding_sync", "gif_search", "sticker_picker", "copy_selection", "space_remove_room",
+        "room_picker_search", "welcome", "sso_login", "native_oidc", "dm_invite", "notifications",
+        "push_gateway", "image_cache"
+      ]
+    },
+    "variant": {
+      "type": "enum",
+      "values": [
+        "none", "off", "auto", "rnnoise", "dfn3", "signal", "telegram", "own", "saved",
+        "suggested", "custom", "screen", "window", "app", "system", "static", "animated",
+        "unified_push", "firebase", "local", "thumbnail", "full", "light", "dark"
+      ]
+    },
+    "action": {
+      "type": "enum",
+      "values": [
+        "open", "start", "stop", "send", "receive", "play", "record", "import", "export",
+        "search", "join", "load", "save", "apply", "enable", "disable", "select", "copy",
+        "remove", "login", "accept", "decline", "show", "error"
+      ]
+    }
+  },
+
+  "envelope": {
+    "v": { "type": "int", "min": 1, "max": 1000, "required": true },
+    "install": { "type": "pattern", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "required": true },
+    "session": { "type": "pattern", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "required": true },
+    "app_version": { "type": "pattern", "pattern": "^[A-Za-z0-9._+/-]{1,80}$", "required": true },
+    "flavor": { "type": "enum", "values": ["testing", "release", "debug", "profile"], "required": true },
+    "platform": { "type": "enum", "values": ["windows", "linux", "macos", "android", "ios", "web"], "required": true },
+    "os_id": { "type": "pattern", "pattern": "^[a-z0-9._-]{1,32}$" },
+    "os_build": { "type": "int", "min": 0, "max": 10000000 },
+    "display": { "type": "enum", "values": ["wayland", "x11", "windows", "macos", "android", "ios", "web", "unknown"] },
+    "packaging": { "type": "enum", "values": ["flatpak", "apk", "zip", "msix", "appimage", "deb", "source", "unknown"] },
+    "cpu_cores": { "type": "int", "min": 0, "max": 1024 },
+    "tag": { "type": "pattern", "pattern": "^[A-Za-z0-9_-]([A-Za-z0-9 _-]{0,30}[A-Za-z0-9_-])?$" },
+    "events": { "type": "events", "required": true }
+  },
+
+  "events": {
+    "session_start": {
+      "first_frame_ms": { "type": "ms" },
+      "accounts": { "type": "count" },
+      "telemetry_new": { "type": "bool" },
+      "experiments": { "type": "experiment_keys" }
+    },
+    "app_ready": {
+      "ms": { "type": "ms", "required": true },
+      "rooms": { "type": "count" },
+      "spaces": { "type": "count" },
+      "accounts": { "type": "count" },
+      "sliding_sync": { "type": "bool" },
+      "db_initial": { "type": "timers" },
+      "db_postload": { "type": "timers" }
+    },
+    "sync_initial": {
+      "ms": { "type": "ms", "required": true },
+      "rooms": { "type": "count" },
+      "sliding_sync": { "type": "bool" },
+      "own_server": { "type": "bool" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" }
+    },
+    "sync_error": {
+      "error_kind": { "type": "error_kind", "required": true },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" },
+      "consecutive": { "type": "count" },
+      "own_server": { "type": "bool" }
+    },
+    "attachment_send": {
+      "kind": { "type": "enum", "values": ["image", "video", "audio", "file", "voice", "sticker"], "required": true },
+      "mime": { "type": "mime" },
+      "bytes": { "type": "bytes" },
+      "width": { "type": "pixels" },
+      "height": { "type": "pixels" },
+      "encrypted": { "type": "bool" },
+      "batch_size": { "type": "count" },
+      "batch_index": { "type": "count" },
+      "thumbnail": { "type": "bool" },
+      "resolve_ms": { "type": "ms" },
+      "exif_ms": { "type": "ms" },
+      "process_ms": { "type": "ms" },
+      "queue_ms": { "type": "ms" },
+      "thumbnail_ms": { "type": "ms" },
+      "encrypt_ms": { "type": "ms" },
+      "upload_ms": { "type": "ms" },
+      "send_ms": { "type": "ms" },
+      "total_ms": { "type": "ms" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "media_load": {
+      "variant": { "type": "variant" },
+      "bytes": { "type": "bytes" },
+      "encrypted": { "type": "bool" },
+      "cached": { "type": "bool" },
+      "ms": { "type": "ms" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "call_join": {
+      "kind": { "type": "enum", "values": ["matrixrtc", "legacy_voip"], "required": true },
+      "ms": { "type": "ms" },
+      "encrypted": { "type": "bool" },
+      "participants": { "type": "count" },
+      "sfus": { "type": "count" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" }
+    },
+    "capture": {
+      "source": { "type": "enum", "values": ["mic", "camera", "screen", "screen_audio"], "required": true },
+      "action": { "type": "enum", "values": ["start", "unmute", "enumerate"], "required": true },
+      "api": { "type": "enum", "values": ["livekit", "webrtc", "android_projection"] },
+      "device_choice": { "type": "enum", "values": ["default", "preferred", "preferred_missing"] },
+      "device_type": { "type": "enum", "values": ["builtin", "usb", "bluetooth", "virtual", "hdmi", "unknown"] },
+      "devices": { "type": "count" },
+      "ms": { "type": "ms" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" }
+    },
+    "call_leave": {
+      "kind": { "type": "enum", "values": ["matrixrtc", "legacy_voip"], "required": true },
+      "ms": { "type": "ms" },
+      "state_ms": { "type": "ms" },
+      "disconnect_ms": { "type": "ms" },
+      "heartbeat_ms": { "type": "ms" },
+      "failed_step": { "type": "enum", "values": ["none", "state", "disconnect", "heartbeat"] },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "call_end": {
+      "kind": { "type": "enum", "values": ["matrixrtc", "legacy_voip"], "required": true },
+      "seconds": { "type": "seconds" },
+      "reason": { "type": "enum", "values": ["hangup", "remote_hangup", "disconnected", "error", "app_exit", "unknown"] },
+      "reconnects": { "type": "count" },
+      "max_participants": { "type": "count" }
+    },
+    "frame_stats": {
+      "frames": { "type": "count", "required": true },
+      "slow_frames": { "type": "count" },
+      "frozen_frames": { "type": "count" },
+      "worst_ms": { "type": "ms" },
+      "p95_ms": { "type": "ms" },
+      "build_p95_ms": { "type": "ms" },
+      "build_worst_ms": { "type": "ms" },
+      "raster_p95_ms": { "type": "ms" },
+      "raster_worst_ms": { "type": "ms" }
+    },
+    "loop_lag": {
+      "samples": { "type": "count", "required": true },
+      "p95_ms": { "type": "ms" },
+      "worst_ms": { "type": "ms" },
+      "stalls_100ms": { "type": "count" },
+      "stalls_1s": { "type": "count" }
+    },
+    "sync_stats": {
+      "syncs": { "type": "count", "required": true },
+      "apply_p95_ms": { "type": "ms" },
+      "apply_worst_ms": { "type": "ms" },
+      "apply_total_ms": { "type": "ms" }
+    },
+    "perf_summary": {
+      "uptime_s": { "type": "seconds" },
+      "rss_mb": { "type": "count" },
+      "timers": { "type": "timers" }
+    },
+    "crash": {
+      "source": { "type": "enum", "values": ["flutter", "platform", "zone", "isolate", "logged"], "required": true },
+      "fatal": { "type": "bool" },
+      "error_type": { "type": "code_type", "required": true },
+      "frames": { "type": "code_frames" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" },
+      "repeat": { "type": "count" }
+    },
+    "exit_reason": {
+      "reason": { "type": "enum", "values": ["exit_self", "signaled", "low_memory", "crash", "crash_native", "anr", "initialization_failure", "permission_change", "excessive_resource_usage", "user_requested", "user_stopped", "dependency_died", "other", "unknown"], "required": true },
+      "status": { "type": "int", "min": -2147483648, "max": 2147483647 },
+      "importance": { "type": "enum", "values": ["foreground", "foreground_service", "visible", "perceptible", "service", "cached", "gone", "other"] },
+      "age": { "type": "seconds" },
+      "java_error_type": { "type": "java_type" },
+      "java_outer_type": { "type": "java_type" },
+      "java_frames": { "type": "java_frames" },
+      "native_frames": { "type": "list", "max": 30, "item": { "type": "pattern", "pattern": "^[A-Za-z0-9_.+?-]{1,80}(![A-Za-z0-9_$.]{1,200})?\\+0x[0-9a-f]{1,16}$" } },
+      "native_thread": { "type": "pattern", "pattern": "^[A-Za-z0-9_ .:#/-]{1,32}$" },
+      "abort_kind": { "type": "enum", "values": ["none", "check_failed", "rust_panic", "jni", "fortify", "heap", "other"] }
+    },
+    "feature": {
+      "feature": { "type": "feature", "required": true },
+      "action": { "type": "action", "required": true },
+      "variant": { "type": "variant" },
+      "ms": { "type": "ms" },
+      "count": { "type": "count" },
+      "bytes": { "type": "bytes" },
+      "outcome": { "type": "outcome" },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" }
+    },
+    "room_open": {
+      "ms": { "type": "ms", "required": true },
+      "events": { "type": "count" },
+      "history_requested": { "type": "bool" },
+      "convert_ms": { "type": "ms" },
+      "startup_loads_running": { "type": "bool" },
+      "encrypted": { "type": "bool" },
+      "utd": { "type": "count" },
+      "at_start": { "type": "bool" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" }
+    },
+    "timeline_crypto": {
+      "open_s": { "type": "seconds" },
+      "utd_at_open": { "type": "count", "required": true },
+      "utd_at_close": { "type": "count", "required": true },
+      "key_arrivals": { "type": "count" },
+      "decrypted": { "type": "count" },
+      "removed": { "type": "count" },
+      "removed_utd": { "type": "count" },
+      "events_peak": { "type": "count" },
+      "events_at_close": { "type": "count" }
+    },
+    "key_request": {
+      "source": { "type": "enum", "values": ["manual", "auto"], "required": true },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "notify_setup": {
+      "notifier": { "type": "enum", "values": ["unifiedpush", "firebase", "android_local", "linux", "windows", "other", "none"], "required": true },
+      "permission": { "type": "bool" },
+      "enabled": { "type": "bool" },
+      "up_endpoint": { "type": "bool" },
+      "up_distributor": { "type": "bool" },
+      "pushers": { "type": "count" },
+      "own_pusher": { "type": "bool" },
+      "master_muted": { "type": "bool" },
+      "rooms": { "type": "count" },
+      "rooms_unread": { "type": "count" },
+      "rooms_muted": { "type": "count" },
+      "rooms_mentions": { "type": "count" },
+      "account_index": { "type": "count" },
+      "accounts": { "type": "count" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "notify_counts": {
+      "pushes": { "type": "count", "required": true },
+      "shown": { "type": "count" },
+      "quieted_other_device": { "type": "count" },
+      "quieted_other": { "type": "count" },
+      "dropped_active_room": { "type": "count" },
+      "dropped_dnd": { "type": "count" },
+      "dropped_off": { "type": "count" },
+      "dropped_other": { "type": "count" },
+      "error_notice": { "type": "count" },
+      "failed": { "type": "count" },
+      "handle_ms_total": { "type": "ms" },
+      "handle_ms_max": { "type": "ms" }
+    },
+    "history_load": {
+      "ms": { "type": "ms", "required": true },
+      "events": { "type": "count" },
+      "startup_loads_running": { "type": "bool" },
+      "encrypted": { "type": "bool" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    }
+  }
+}
