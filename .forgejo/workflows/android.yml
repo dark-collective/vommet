@@ -1,0 +1,197 @@
+name: android
+
+# Signed arm64 release APK for testers. Heavy (Android SDK + NDK + a Rust
+# cross-build), so it runs on main and on demand, not on every branch push.
+# Signing: the fork's own key from repo secrets (ANDROID_KEY_STORE_B64,
+# ANDROID_KEY_PASSWORD) via upstream's scripts/setup_android_release.dart, so
+# successive builds install as updates. versionCode = run number, so each
+# build is newer than the last.
+on:
+  push:
+    # sync/testing: the upstream-sync candidate must build an APK before promotion.
+    branches: [main, testing, sync/testing]
+  workflow_dispatch:
+
+# Same host as the voice bridge's live E2E harness; see build.yml.
+concurrency:
+  group: live-host
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  ANDROID_HOME: /root/android-sdk
+  ANDROID_SDK_ROOT: /root/android-sdk
+  CMDLINE_TOOLS_ZIP: commandlinetools-linux-11076708_latest.zip
+
+jobs:
+  # Skip the heavy job when this commit (or the green testing that contains
+  # it) already passed it, e.g. testing/main/topics right after a promote.
+  check:
+    runs-on: docker
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          if [ -x .vommet/ci/already-passed.sh ]; then .vommet/ci/already-passed.sh "android / apk"
+          else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+
+  apk:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    runs-on: docker
+    # Prebuilt image with the apt packages, Flutter, Rust, the Android SDK and
+    # Tuwunel (.vommet/ci/Dockerfile); the runner uses it locally (force_pull off).
+    container:
+      image: 100.64.0.13:3000/nether/vommet-ci:3.41.9-20261007
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install native build dependencies
+        run: |
+          if dpkg -s libgtk-3-dev clang >/dev/null 2>&1; then echo 'packages from the CI image'; exit 0; fi
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl xz-utils git unzip zip build-essential clang lld llvm cmake ninja-build pkg-config \
+            openjdk-17-jdk-headless
+
+      - name: Cache Flutter, pub, Rust, Android SDK and Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            /root/android-sdk
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: android-img-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.lock', 'Cargo.lock', 'commet/android/**/*.gradle', 'commet/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            android-img-${{ env.FLUTTER_VERSION }}-
+
+      # pub checks a git dependency's locked commit in its cached mirror before
+      # fetching; a mirror older than that commit (restored from an older cache
+      # via restore-keys) makes it silently drop the package's dependencies and
+      # codegen fails on package_graph.json. Refresh the mirrors first.
+      - name: Refresh cached git dependencies
+        run: |
+          for d in "$HOME"/.pub-cache/git/cache/*/; do
+            [ -d "$d" ] || continue
+            git --git-dir="$d" fetch --quiet --prune || rm -rf "$d"
+          done
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }} (if not cached)
+        run: |
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            rm -rf "$HOME/flutter"
+            curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" | tar -xJ -C "$HOME"
+          fi
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory '*'
+
+      - name: Install Rust + Android target (if not cached)
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          "$HOME/.cargo/bin/rustup" target add aarch64-linux-android
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # Gradle installs the platform, build-tools and NDK versions it needs on
+      # first use, as long as the SDK licenses are accepted.
+      - name: Install Android SDK command-line tools (if not cached)
+        run: |
+          if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            curl -fsSL -o /tmp/clt.zip "https://dl.google.com/android/repository/$CMDLINE_TOOLS_ZIP"
+            unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          fi
+          # The runner shell uses pipefail: when sdkmanager stops reading,
+          # `yes` dies of SIGPIPE (exit 141) and would fail the step.
+          echo "accepting SDK licenses"
+          (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          echo "installing platform-tools"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" >/dev/null
+          echo "android sdk ready"
+
+      - name: Configure Flutter
+        run: |
+          flutter config --no-analytics --android-sdk "$ANDROID_HOME"
+          flutter --version
+
+      - name: Code generation
+        run: |
+          cd $PROJECT_PATH
+          dart run scripts/codegen.dart
+
+      - name: Signing key
+        env:
+          KEY_B64: ${{ secrets.ANDROID_KEY_STORE_B64 }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd $PROJECT_PATH
+          if [ -z "$KEY_B64" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::signing secrets missing"; exit 1
+          fi
+          dart run scripts/setup_android_release.dart --key_password "$KEY_PASSWORD" --key_b64 "$KEY_B64"
+
+      # The runner has 10 GB for everything (and CI jobs share it): Flutter's
+      # project default lets Gradle take 4.6 GB, the Kotlin daemon is a second
+      # JVM of about that size, and cargo builds the voice library in parallel,
+      # so "Gradle build daemon disappeared" (OOM-killed) happened repeatedly.
+      # A user-level gradle.properties overrides the project's for CI only.
+      - name: Fit Gradle and cargo into the runner's memory
+        run: |
+          mkdir -p ~/.gradle
+          {
+            echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:+HeapDumpOnOutOfMemoryError'
+            echo 'org.gradle.workers.max=2'
+            echo 'org.gradle.parallel=false'
+            echo 'kotlin.compiler.execution.strategy=in-process'
+          } > ~/.gradle/gradle.properties
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          cat ~/.gradle/gradle.properties
+
+      - name: Build APK (arm64, release)
+        run: |
+          cd $PROJECT_PATH
+          # --split-per-abi drops the 32-bit ARM and x86_64 copies of plugin
+          # libraries (about half the APK). Flutter then sets versionCode to
+          # 2000 + build number for arm64, still increasing per run.
+          # --split-debug-info: Dart symbols go to build/symbols (uploaded below)
+          # instead of into libapp.so; keep them to decode release stack traces.
+          flutter build apk --release --target-platform android-arm64 --split-per-abi  \
+            --split-debug-info=build/symbols \
+            --build-number=${{ github.run_number }} \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=android \
+            --dart-define GIT_HASH=${{ github.sha }} \
+            --dart-define "VERSION_TAG=$(bash "$GITHUB_WORKSPACE/.vommet/ci/version-tag.sh" '${{ github.ref_name }}' '${{ github.run_number }}' 2>/dev/null || echo '${{ github.ref_name }}.${{ github.run_number }}')" \
+            --dart-define BUILD_DETAIL=ci \
+            --dart-define ENABLE_GOOGLE_SERVICES=false \
+            --dart-define BUILD_DATE=$(date +%s000)
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../vommet-android-arm64.apk
+          rm -f android/key.jks android/key.properties
+          ls -la ../vommet-android-arm64.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: vommet-android-arm64
+          path: vommet-android-arm64.apk
+          retention-days: 5
+
+      - name: Upload Dart debug symbols
+        uses: actions/upload-artifact@v3
+        with:
+          name: vommet-android-arm64-symbols
+          path: commet/build/symbols
+          retention-days: 5
