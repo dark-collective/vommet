@@ -1,0 +1,394 @@
+import 'dart:async';
+
+import 'package:commet/client/client.dart';
+import 'package:commet/client/components/user_presence/user_presence_component.dart';
+import 'package:commet/client/member.dart';
+import 'package:commet/ui/atoms/shimmer_loading.dart';
+import 'package:commet/ui/organisms/user_profile/user_profile.dart';
+import 'package:flutter/material.dart' as material;
+import 'package:flutter/material.dart';
+import 'package:tiamat/tiamat.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+class UserPanel extends material.StatefulWidget {
+  const UserPanel(
+      {super.key,
+      required this.userId,
+      required this.client,
+      required this.contextRoom,
+      this.initialMember,
+      this.isDirectMessage = false,
+      this.activity,
+      this.onTap});
+  final String userId;
+
+  /// Vommet: what the member is doing in the room's call, shown under the
+  /// name like Discord's "In voice".
+  final MemberActivity? activity;
+  final Client client;
+  final Member? initialMember;
+  final Room contextRoom;
+  final bool isDirectMessage;
+  final void Function()? onTap;
+
+  @override
+  State<UserPanel> createState() => _UserPanelState();
+}
+
+class _UserPanelState extends material.State<UserPanel> {
+  late String displayName;
+  late Color color;
+  ImageProvider? avatar;
+  String? detail;
+  TextStyle? detailStringStyle;
+  late UserPresence presence;
+
+  StreamSubscription? sub;
+
+  @override
+  initState() {
+    presence = UserPresence(UserPresenceStatus.unknown);
+
+    super.initState();
+    initPresence();
+    getInfoFromMember();
+  }
+
+  void getInfoFromMember() {
+    if (widget.isDirectMessage) {
+      displayName = widget.contextRoom.displayName;
+      color = widget.contextRoom.defaultColor;
+      avatar = widget.contextRoom.avatar;
+      return;
+    }
+
+    final member = widget.initialMember ??
+        widget.contextRoom.getMemberOrFallback(widget.userId);
+    displayName = member.displayName;
+    color = member.defaultColor;
+    avatar = member.avatar;
+    detail = member.detail;
+  }
+
+  @override
+  void didUpdateWidget(covariant UserPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    getInfoFromMember();
+  }
+
+  @override
+  dispose() {
+    super.dispose();
+    sub?.cancel();
+  }
+
+  initPresence() async {
+    final presenceComponent =
+        widget.client.getComponent<UserPresenceComponent>();
+
+    if (presenceComponent == null) {
+      return;
+    }
+
+    sub = presenceComponent.onPresenceChanged
+        .where((tuple) => tuple.$1 == widget.userId)
+        .listen(onChanged);
+
+    final p = await presenceComponent.getUserPresence(widget.userId);
+
+    if (mounted) {
+      setState(() {
+        presence = p;
+      });
+    }
+  }
+
+  @override
+  material.Widget build(material.BuildContext context) {
+    TextStyle? style;
+
+    var currentStyle = material.Theme.of(context).textTheme.bodyMedium;
+    style = currentStyle?.copyWith(fontSize: 10);
+
+    if (presence.message != null) {
+      style = style?.copyWith(
+        fontWeight: FontWeight.w500,
+      );
+    } else {
+      style = style?.copyWith(
+        color: Theme.of(context).colorScheme.secondary,
+      );
+    }
+
+    return UserPanelView(
+      displayName: displayName,
+      avatar: avatar,
+      detail: detail,
+      detailStringStyle: style,
+      color: color,
+      avatarColor: color,
+      nameColor: widget.isDirectMessage ? null : color,
+      avatarSize: widget.isDirectMessage ? 20 : 15,
+      presence: presence,
+      activity: widget.activity,
+      onClicked: widget.onTap ?? onUserPanelClicked,
+    );
+  }
+
+  void onUserPanelClicked() {
+    UserProfile.show(context, client: widget.client, userId: widget.userId);
+  }
+
+  void onChanged((String, UserPresence) event) {
+    if (mounted) {
+      setState(() {
+        presence = event.$2;
+      });
+    }
+  }
+}
+
+class UserPanelView extends material.StatelessWidget {
+  const UserPanelView(
+      {super.key,
+      this.avatar,
+      required this.displayName,
+      this.color,
+      this.avatarColor,
+      this.nameColor,
+      this.detail,
+      this.padding,
+      this.shimmer = false,
+      this.random = 0,
+      this.detailStringStyle,
+      this.presence,
+      this.activity,
+      this.avatarSize = 15,
+      this.onClicked});
+  final ImageProvider? avatar;
+  final String displayName;
+  final double avatarSize;
+  final Color? color;
+  final Color? avatarColor;
+  final Color? nameColor;
+  final String? detail;
+  final EdgeInsets? padding;
+  final UserPresence? presence;
+  final MemberActivity? activity;
+  final bool shimmer;
+  final TextStyle? detailStringStyle;
+  final double random;
+  final void Function()? onClicked;
+
+  @override
+  Widget build(BuildContext context) {
+    var shimmerColor = Theme.of(context).colorScheme.surfaceContainerHighest;
+
+    var widget = ClipRRect(
+      borderRadius: BorderRadius.circular(5),
+      child: material.Material(
+        color: material.Colors.transparent,
+        child: material.InkWell(
+          splashColor: material.Theme.of(context).highlightColor,
+          onTap: onClicked,
+          child: Padding(
+            padding: padding ?? const EdgeInsets.fromLTRB(4, 2, 4, 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                material.Stack(
+                  alignment: AlignmentGeometry.bottomRight,
+                  children: [
+                    Avatar(
+                      radius: avatarSize,
+                      image: shimmer ? null : avatar,
+                      placeholderText: shimmer ? " " : displayName,
+                      placeholderColor: shimmer ? shimmerColor : avatarColor,
+                    ),
+                    if (presence?.status != null)
+                      createPresenceIcon(context, presence!.status),
+                  ],
+                ),
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 3, 8, 3),
+                    child: Container(
+                      alignment: Alignment.centerLeft,
+                      child: Column(
+                        mainAxisSize: material.MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (shimmer)
+                            Container(
+                              height: 10,
+                              width: (random * 50) + 50,
+                              decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(4),
+                                  color: shimmerColor),
+                            ),
+                          if (shimmer)
+                            material.Padding(
+                              padding: const EdgeInsets.fromLTRB(0, 4, 0, 0),
+                              child: Container(
+                                height: 8,
+                                width: (random * 20) + 20,
+                                decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(4),
+                                    color: shimmerColor),
+                              ),
+                            ),
+                          if (!shimmer)
+                            tiamat.Text.name(
+                              displayName,
+                              color: nameColor,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          if (activity != null) activityRow(context),
+                          if (activity == null && presence?.message != null)
+                            material.Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                if (presence!.message?.messageType ==
+                                    PresenceMessageType.userCustom)
+                                  material.Padding(
+                                    padding:
+                                        const EdgeInsets.fromLTRB(0, 0, 4, 0),
+                                    child: Icon(
+                                      Icons.chat_bubble,
+                                      size: 10,
+                                    ),
+                                  ),
+                                Flexible(
+                                  child: material.Padding(
+                                      padding:
+                                          const EdgeInsets.fromLTRB(0, 0, 0, 2),
+                                      child: material.Text(
+                                        presence!.message!.message,
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                        style: detailStringStyle,
+                                      )),
+                                ),
+                              ],
+                            ),
+                          if (activity == null &&
+                              presence?.message == null &&
+                              detail != null)
+                            material.Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Flexible(
+                                  child: material.Padding(
+                                    padding:
+                                        const EdgeInsets.fromLTRB(0, 0, 0, 2),
+                                    child: buildDetailString(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (shimmer) {
+      return ShimmerLoading(isLoading: true, child: widget);
+    }
+
+    return widget;
+  }
+
+  /// Vommet: "In voice" / "Sharing their screen" with its icon, followed by
+  /// the status message when there is one (Discord's "🔊 • status").
+  material.Widget activityRow(material.BuildContext context) {
+    final green = Colors.green.shade400;
+    final message = presence?.message?.message;
+    return material.Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+            activity == MemberActivity.sharingScreen
+                ? Icons.screen_share
+                : Icons.volume_up,
+            size: 12,
+            color: green),
+        const material.SizedBox(width: 4),
+        Flexible(
+          child: material.Text(
+            message != null
+                ? "• $message"
+                : activity == MemberActivity.sharingScreen
+                    ? "Sharing their screen"
+                    : "In voice",
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            style: detailStringStyle,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static material.DecoratedBox createPresenceIcon(
+      BuildContext context, UserPresenceStatus status) {
+    var scheme = Theme.of(context).colorScheme;
+
+    var backgroundColor = scheme.surfaceContainer;
+
+    var color = status.getColor();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        // Vommet: unknown (the server doesn't share presence) is a hollow
+        // ring, so it doesn't read as offline.
+        color: status == UserPresenceStatus.unknown ? backgroundColor : color,
+        shape: BoxShape.circle,
+        border: Border.all(
+            width: 2,
+            strokeAlign: BorderSide.strokeAlignOutside,
+            color: backgroundColor),
+      ),
+      child: status == UserPresenceStatus.unknown
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(width: 1.5, color: color),
+              ),
+              child: const SizedBox(width: 8, height: 8),
+            )
+          : const SizedBox(
+              width: 8,
+              height: 8,
+            ),
+    );
+  }
+
+  Widget buildDetailString() {
+    if (detailStringStyle == null) {
+      return tiamat.Text.labelLow(detail!);
+    }
+
+    return material.Text(
+      detail!,
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+      style: detailStringStyle?.copyWith(
+        fontFamily: "Code",
+      ),
+    );
+  }
+}
+
+/// Vommet: a member's activity in the room's call.
+enum MemberActivity { inVoice, sharingScreen }
