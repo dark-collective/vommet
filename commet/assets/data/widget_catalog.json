@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "widgets": [
+    {
+      "id": "park-chess",
+      "name": "Park Chess",
+      "by": "Vommet",
+      "by_url": "https://vommet.app",
+      "tags": [
+        "game",
+        "new"
+      ],
+      "summary": "Casual chess with your friends, on a wooden table in the park.",
+      "about": [
+        "Sit down on a bench as White or Black, and anyone else in the room can watch. Moves are saved in the room, so a game can go on for days: close it, come back tomorrow, and the board is where you left it.",
+        "Every move is checked by everyone's copy of the game, so nobody can sneak in an illegal move or play out of turn. Offer a draw, resign, or hit Play again for a rematch with the colours swapped."
+      ],
+      "url": "https://vommet.app/widgets/park-chess/play/?widgetId=$matrix_widget_id&userId=$matrix_user_id&displayName=$matrix_display_name&roomId=$matrix_room_id&theme=$org.matrix.msc2873.client_theme",
+      "type": "app.vommet.park_chess",
+      "sends": [
+        "app.vommet.park_chess"
+      ],
+      "host": "vommet.app",
+      "source": "https://nether.codes/nether/vommet-site/src/branch/main/widgets/park-chess/play",
+      "try_url": "/widgets/park-chess/play/",
+      "preview": "/widgets/park-chess/preview.png",
+      "icon": "chess"
+    },
+    {
+      "id": "draw",
+      "name": "Draw",
+      "by": "Commet",
+      "by_url": "https://commet.chat",
+      "tags": [
+        "fun",
+        "matrixrtc",
+        "alpha"
+      ],
+      "summary": "Draw with your friends over MatrixRTC.",
+      "about": [
+        "Inspired by a late night of drawing doodles on a Monopoly table in Tabletop Simulator: a simple widget for drawing with your friends over MatrixRTC. Strokes are saved in the Matrix room, so you can keep coming back to it and adding more drawings."
+      ],
+      "url": "https://draw.commet.chat/matrix?widgetId=$matrix_widget_id&perParticipantE2EE=true&userId=$matrix_user_id&deviceId=$org.matrix.msc3819.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&roomId=$matrix_room_id&safeArea=$chat.commet.safe_area&chat.commet.color_scheme=$chat.commet.color_scheme",
+      "type": "com.lagmachine.drawinggame",
+      "host": "draw.commet.chat",
+      "source": "https://github.com/commetchat/draw",
+      "preview_mxc": "mxc://matrix.org/hNkBFdxRDvlGDwkJTcInEmLt",
+      "icon": "draw"
+    },
+    {
+      "id": "neoboard",
+      "name": "Neoboard",
+      "by": "Nordeck",
+      "by_url": "https://nordeck.net",
+      "tags": [
+        "utility"
+      ],
+      "summary": "A collaborative whiteboard for Matrix rooms.",
+      "about": [
+        "Collaborate with your peers in real time, while keeping full control of your data and keeping it secure with end-to-end encryption."
+      ],
+      "url": "https://nordeck.github.io/matrix-neoboard/#/?theme=$org.matrix.msc2873.client_theme&matrix_user_id=$matrix_user_id&matrix_display_name=$matrix_display_name&matrix_avatar_url=$matrix_avatar_url&matrix_room_id=$matrix_room_id&matrix_client_id=$org.matrix.msc2873.client_id&matrix_client_language=$org.matrix.msc2873.client_language&matrix_device_id=$org.matrix.msc3819.matrix_device_id&matrix_base_url=$org.matrix.msc4039.matrix_base_url",
+      "host": "nordeck.github.io",
+      "source": "https://github.com/nordeck/matrix-neoboard",
+      "preview_mxc": "mxc://matrix.org/DhIjsHLMifcxDlOBNQDOZOVr",
+      "icon": "board"
+    },
+    {
+      "id": "paperchat",
+      "name": "Paperchat",
+      "by": "Airyz",
+      "by_url": "https://airyz.xyz",
+      "tags": [
+        "fun"
+      ],
+      "summary": "Chat like it's 2004!",
+      "about": [
+        "A fork of an existing project, with quick support for the Matrix widget API hacked in. Its author says it's not particularly polished, but fun to play with for a little while."
+      ],
+      "url": "https://paperchat.airyz.workers.dev/#/?widgetId=$matrix_widget_id&matrix_user_id=$matrix_user_id&matrix_room_id=$matrix_room_id&theme=$org.matrix.msc2873.client_theme&matrix_display_name=$matrix_display_name&matrix_avatar_url=$matrix_avatar_url&language=$org.matrix.msc2873.client_language",
+      "type": "xyz.airyz.paperchat",
+      "host": "paperchat.airyz.workers.dev",
+      "source": "https://github.com/Airyzz/paperchat",
+      "preview_mxc": "mxc://matrix.org/ZqGWNwvEMdbCubDRJLAhbldl",
+      "icon": "paper"
+    },
+    {
+      "id": "watch-party",
+      "name": "Watch Party",
+      "by": "Commet",
+      "by_url": "https://commet.chat",
+      "tags": [
+        "fun",
+        "matrixrtc",
+        "alpha"
+      ],
+      "summary": "Watch YouTube videos together over MatrixRTC.",
+      "about": [
+        "Watch YouTube videos with your friends over MatrixRTC. Still in alpha."
+      ],
+      "url": "https://watchparty.commet.chat/?widgetId=$matrix_widget_id&perParticipantE2EE=true&userId=$matrix_user_id&deviceId=$org.matrix.msc3819.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&roomId=$matrix_room_id&chat.commet.color_scheme=$chat.commet.color_scheme",
+      "type": "chat.commet.matrix-watch-party",
+      "host": "watchparty.commet.chat",
+      "source": "https://github.com/commetchat/matrix-watch-party",
+      "avatar_mxc": "mxc://matrix.org/infsQzLpxfeHtEvbjxWKsEHD",
+      "preview_mxc": "mxc://matrix.org/QCvgSHnLlDdqbVthlSjSWHZU",
+      "icon": "play"
+    }
+  ]
+}
