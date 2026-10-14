@@ -1,0 +1,215 @@
+# Vommet: web app (Flutter web) for self-hosters, published as a container
+# image on ghcr.io/dark-collective/vommet-web plus a tarball artifact. Runs only
+# on the GitHub copy (github.com/dark-collective/vommet); Forgejo reads
+# .forgejo/workflows and never sees this file.
+#
+# The browser-only pieces (vodozemac wasm, LiveKit E2EE worker) come from
+# .vommet/web/prepare.sh and are cached on their pins, so a normal run is just
+# codegen + `flutter build web` + image push. The image is nginx on :8080;
+# VOMMET_DEFAULT_HOMESERVER sets the login page's homeserver at runtime.
+#
+# Tags: <label> (testing-YYYY-MM-DDx on ci/windows-testing, else
+# <branch>.<run>) and a moving tag per branch ("testing", or the branch name).
+name: vommet-web
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/xplat-web*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  VODOZEMAC_REF: 0.5.0
+  FRB_CODEGEN: 2.11.1
+  IMAGE: ghcr.io/dark-collective/vommet-web
+
+jobs:
+  web:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install failure-annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/ci_run" <<'SH'
+          #!/usr/bin/env bash
+          set -o pipefail
+          log=$(mktemp)
+          "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            msg=$(grep -E '^(error|Error|ERROR)|error:|Error:|FAILED|Failed|^Target .* failed' "$log" | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log")
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=$1 failed::$msg"
+          fi
+          exit "$status"
+          SH
+          chmod +x "$HOME/bin/ci_run"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # Fork invariant: no new dependency on Commet's servers.
+      - name: No unlisted Commet hosts
+        run: ci_run .vommet/check-commet-hosts.sh
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Web prep cache key
+        id: prep
+        run: |
+          lk=$(awk '/^  livekit_client:$/{f=1} f&&/ref:/{print $2; exit}' $PROJECT_PATH/pubspec.yaml)
+          echo "key=web-prep-vz$VODOZEMAC_REF-frb$FRB_CODEGEN-lk$lk-${{ hashFiles('.vommet/web/prepare.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore web prep
+        id: prepcache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            commet/assets/vodozemac/vodozemac_bindings_dart*
+            commet/web/e2ee.worker.dart.js
+          key: ${{ steps.prep.outputs.key }}
+
+      - name: Rust toolchain for wasm
+        if: steps.prepcache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          command -v wasm-pack >/dev/null || curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Prepare web (vodozemac wasm + E2EE worker)
+        if: steps.prepcache.outputs.cache-hit != 'true'
+        run: ci_run .vommet/web/prepare.sh
+
+      - name: Code generation
+        run: |
+          flutter config --no-analytics
+          cd $PROJECT_PATH
+          ci_run flutter pub get
+          ci_run dart run scripts/codegen.dart
+
+      - name: Version label
+        id: label
+        run: |
+          vt=$(bash .vommet/ci/version-tag.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" 2>/dev/null || true)
+          vt=${vt:-$GITHUB_REF_NAME.$GITHUB_RUN_NUMBER}
+          name=${vt%% (*}; name=${name//\//-}
+          src=$(cat .vommet/ci/source-sha 2>/dev/null || true)
+          case "$GITHUB_REF_NAME" in
+            ci/windows-testing) moving=testing ;;
+            *) moving=${GITHUB_REF_NAME//\//-} ;;
+          esac
+          echo "label=$vt" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "moving=$moving" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_SHA=${src:-$GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "label '$vt', image tags '$name' + '$moving'"
+
+      # Same defines as upstream's build_release.dart --platform web, called
+      # directly like the Linux build (the script wants an x.y.z version tag).
+      - name: Build web
+        env:
+          VT: ${{ steps.label.outputs.label }}
+        run: |
+          cd $PROJECT_PATH
+          ci_run flutter build web --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=web \
+            --dart-define GIT_HASH=$SOURCE_SHA \
+            --dart-define "VERSION_TAG=$VT" \
+            --dart-define ENABLE_GOOGLE_SERVICES=false \
+            --dart-define BUILD_DATE=$(date +%s000) \
+            --dart-define FLUTTER_WEB_CANVASKIT_URL=canvaskit/ \
+            --source-maps
+          du -sh build/web
+
+      # Loads the built app in the runner's Chrome and fails on any uncaught
+      # exception during startup (dart:io and other native-only code throws
+      # only at runtime on web). Screenshot goes into the smoke artifact.
+      - name: Smoke test in headless Chrome
+        run: |
+          set -euo pipefail
+          (cd $PROJECT_PATH/build/web && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          google-chrome --headless=new --no-sandbox --remote-debugging-port=9333 \
+            --user-data-dir="$RUNNER_TEMP/chrome" --window-size=1280,800 about:blank >/dev/null 2>&1 &
+          for i in $(seq 1 30); do
+            ws=$(curl -s http://127.0.0.1:9333/json/version | jq -r .webSocketDebuggerUrl) && [ -n "$ws" ] && break
+            sleep 1
+          done
+          mkdir -p smoke
+          ci_run node .vommet/web/smoke.mjs "$ws" http://127.0.0.1:8765/ smoke/login.png 75 | tee smoke/console.txt
+
+      - name: Upload smoke result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-web-smoke-${{ steps.label.outputs.name }}
+          path: smoke/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Tarball
+        run: |
+          cd $PROJECT_PATH/build
+          tar -czf vommet-web.tar.gz web
+          ls -la vommet-web.tar.gz
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-web-${{ steps.label.outputs.name }}
+          path: commet/build/vommet-web.tar.gz
+          retention-days: 14
+
+      - name: Build and push image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          name="${{ steps.label.outputs.name }}"; moving="${{ steps.label.outputs.moving }}"
+          docker build -f .vommet/web/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/dark-collective/vommet \
+            --label org.opencontainers.image.description="Vommet web app (Flutter web, nginx on :8080)" \
+            --label org.opencontainers.image.licenses=AGPL-3.0 \
+            --label org.opencontainers.image.version="$name" \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            -t "$IMAGE:$name" -t "$IMAGE:$moving" .
+          # The image serves the app gzipped and applies the homeserver setting.
+          docker run -d --name vw -p 18080:8080 -e VOMMET_DEFAULT_HOMESERVER=example.org "$IMAGE:$name"
+          for i in $(seq 1 20); do curl -fsS -o /dev/null http://127.0.0.1:18080/ && break; sleep 1; done
+          docker logs vw 2>&1 | tail -n 5
+          curl -fsS http://127.0.0.1:18080/assets/assets/config/global_config.json | grep -q '"example.org"'
+          enc=$(curl -fsS -o /dev/null -D - -H 'Accept-Encoding: gzip' http://127.0.0.1:18080/main.dart.js | tr -d '\r' | awk -F': ' 'tolower($1)=="content-encoding"{print $2}')
+          [ "$enc" = gzip ] || { echo "::error::main.dart.js not served gzipped ($enc)"; exit 1; }
+          curl -fsS -o /dev/null http://127.0.0.1:18080/some/client/route
+          ctype() { curl -fsS -o /dev/null -w '%{content_type}' "http://127.0.0.1:18080/$1"; }
+          for check in "/|text/html" "some/client/route|text/html" "main.dart.js|javascript" \
+                       "canvaskit/canvaskit.wasm|application/wasm" "manifest.json|json"; do
+            path=${check%%|*}; want=${check#*|}; got=$(ctype "${path#/}")
+            case "$got" in *"$want"*) ;; *) echo "::error::$path served as '$got', want $want"; exit 1 ;; esac
+          done
+          docker rm -f vw >/dev/null
+          echo "image check ok: gzip, runtime homeserver, SPA fallback, content types"
+          docker push "$IMAGE:$name"
+          docker push "$IMAGE:$moving"
+          echo "::notice title=Image::$IMAGE:$name (also :$moving)"

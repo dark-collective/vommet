@@ -1,0 +1,55 @@
+// Builds rust/voice for Android with cargokit (the same tooling as
+// rust_lib_commet, which doesn't build on Android) and the small Java bridge
+// into flutter_webrtc.
+
+group 'im.nether.vommet.voice'
+version '1.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.3.0'
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    if (project.android.hasProperty("namespace")) {
+        namespace 'im.nether.vommet.voice'
+    }
+    compileSdkVersion 34
+    ndkVersion android.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        minSdkVersion 21
+    }
+}
+
+dependencies {
+    // Provided at run time by the flutter_webrtc plugin; keep this version in
+    // step with its android/build.gradle.
+    compileOnly project(':flutter_webrtc')
+    compileOnly 'io.github.webrtc-sdk:android:144.7559.04'
+}
+
+apply from: "../../rust_builder/cargokit/gradle/plugin.gradle"
+cargokit {
+    manifestDir = "../../voice"
+    libname = "vommet_voice"
+}
