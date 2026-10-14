@@ -1,0 +1,10 @@
+# Vommet: whisper.cpp (voice message transcription, #70) otherwise compiles for
+# the build machine's CPU (-march=native), and the binaries we ship run on
+# other people's.
+cargo:
+  debug:
+    extra_flags: ["--config", "env.GGML_NATIVE='OFF'"]
+  profile:
+    extra_flags: ["--config", "env.GGML_NATIVE='OFF'"]
+  release:
+    extra_flags: ["--config", "env.GGML_NATIVE='OFF'"]
