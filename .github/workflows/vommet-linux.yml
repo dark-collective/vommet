@@ -1,0 +1,256 @@
+# Vommet: Linux x64 bundle + Flatpak for the tester releases. Runs only on the
+# GitHub copy (github.com/dark-collective/vommet); Forgejo reads
+# .forgejo/workflows and never sees this file. Replaces the Linux leg of
+# Forgejo's build.yml for the testing candidate and the Flatpak wrap that
+# publish.sh used to do on vomit-proxy (2026-10-11): the Forgejo runner has one
+# slot shared by everything on its host, and Vommet builds were most of its queue.
+#
+# Same checks and build as Forgejo's build.yml "linux" job (format, codegen,
+# analyze, unit tests, release build with BUILD_DETAIL=flatpak), on
+# ubuntu-22.04 like the Forgejo CI image (catthehacker act-22.04, glibc 2.35),
+# so the bundle runs on the same distributions as before. The Flatpak is
+# wrapped in debian:trixie, the toolchain vomit-proxy used (flatpak 1.16,
+# flatpak-builder 1.4).
+#
+# The sync tooling (winbranch.sh) pushes ci/windows-testing = candidate +
+# this file + .vommet/ci/source-sha (the Forgejo candidate sha, used as
+# GIT_HASH so About shows the testing commit, not the GitHub snapshot).
+# publish.sh downloads the release assets without a GitHub login.
+#
+# Failures: raw job logs need a GitHub login, check-run annotations don't, so
+# each heavy step mirrors its last error lines into an ::error:: annotation.
+name: vommet-linux
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/windows-linux*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  linux:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    outputs:
+      label: ${{ steps.label.outputs.label }}
+      name: ${{ steps.label.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install failure-annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/ci_run" <<'SH'
+          #!/usr/bin/env bash
+          set -o pipefail
+          log=$(mktemp)
+          "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # flutter test marks each failing test with [E]; prefer those lines over log noise.
+            msg=$(grep -E '\[E\]$' "$log" | sed -E 's/^[0-9:+ -]+//' | sort -u | tail -n 40)
+            [ -n "$msg" ] || msg=$(grep -E '^(error|Error|ERROR)|error:|FAILED|Failed|^Target .* failed|What went wrong' "$log" | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log")
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=$1 failed::$msg"
+          fi
+          exit "$status"
+          SH
+          chmod +x "$HOME/bin/ci_run"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # Fork invariant: no new dependency on Commet's servers.
+      - name: No unlisted Commet hosts
+        run: ci_run .vommet/check-commet-hosts.sh
+
+      # The Forgejo CI image's apt list (.vommet/ci/Dockerfile), minus the
+      # Android/integration-only packages.
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            clang lld llvm cmake ninja-build pkg-config jq \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev \
+            libsecret-1-dev libjsoncpp-dev libpulse-dev libpipewire-0.3-dev >/dev/null
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-linux-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock') }}
+          restore-keys: cargo-linux-
+
+      - name: Configure Flutter
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          flutter --version
+          cargo --version
+
+      - name: Check code style
+        run: |
+          cd $PROJECT_PATH
+          ci_run flutter pub get
+          rm -rf lib/generated
+          ci_run dart format -o none --show all --set-exit-if-changed .
+
+      - name: Code generation
+        run: cd $PROJECT_PATH && ci_run dart run scripts/codegen.dart
+
+      - name: Analyze
+        run: cd $PROJECT_PATH && ci_run dart analyze
+
+      - name: Unit tests
+        run: cd $PROJECT_PATH && ci_run flutter test unit_test
+
+      # The release label, as the Windows build and Forgejo's Android build
+      # compute it ("testing-YYYY-MM-DDx (run)" on ci/windows-testing); name is
+      # the part publish.sh releases under, also the Flatpak's version.
+      - name: Version label
+        id: label
+        run: |
+          vt=$(bash .vommet/ci/version-tag.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" 2>/dev/null || true)
+          vt=${vt:-$GITHUB_REF_NAME.$GITHUB_RUN_NUMBER}
+          name=${vt%% (*}; name=${name//\//-}
+          echo "label=$vt" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          src=$(cat .vommet/ci/source-sha 2>/dev/null || true)
+          echo "SOURCE_SHA=${src:-$GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "label '$vt', name '$name', source ${src:-$GITHUB_SHA}"
+
+      # Flatpak flavour (BUILD_DETAIL=flatpak): the bundle is both the Linux
+      # tarball and what the Flatpak wraps. Production GTK app id (im.nether.chat).
+      - name: Build Linux (release)
+        env:
+          COMMET_PROD: 1
+          VT: ${{ steps.label.outputs.label }}
+        run: |
+          cd $PROJECT_PATH
+          ci_run flutter build linux --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=$SOURCE_SHA \
+            --dart-define "VERSION_TAG=$VT" \
+            --dart-define BUILD_DETAIL=flatpak \
+            --dart-define BUILD_DATE=$(date +%s000)
+
+      - name: Package bundle
+        run: |
+          tar -C $PROJECT_PATH/build/linux/x64/release -czf vommet-linux-x64.tar.gz bundle
+          ls -la vommet-linux-x64.tar.gz
+
+      - name: Upload Linux bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-linux-x64
+          path: vommet-linux-x64.tar.gz
+          retention-days: 14
+
+  flatpak:
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # flatpak-builder's bubblewrap sandbox needs a privileged container.
+    container:
+      image: debian:trixie
+      options: --privileged
+    # Container jobs default to sh (dash); the steps use bash.
+    defaults:
+      run:
+        shell: bash
+    env:
+      FLATPAK_STATE_DIR: /var/cache/vommet-flatpak-state
+    steps:
+      - name: Install flatpak tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates git flatpak flatpak-builder elfutils zstd xz-utils bzip2 unzip patch >/dev/null
+          flatpak --version; flatpak-builder --version
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: vommet-linux-x64
+
+      # Module builds (mpv, libplacebo, libass, keybinder...) between runs.
+      - name: Cache flatpak-builder state
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /var/cache/vommet-flatpak-state
+          key: flatpak-state-${{ hashFiles('commet/linux/flatpak/im.nether.chat.yaml') }}
+          restore-keys: flatpak-state-
+
+      - name: Install GNOME runtime
+        run: |
+          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          rt=$(sed -n "s/^runtime-version: *'\{0,1\}\([^']*\)'\{0,1\}$/\1/p" commet/linux/flatpak/im.nether.chat.yaml)
+          flatpak install -y --noninteractive flathub "org.gnome.Platform//$rt" "org.gnome.Sdk//$rt"
+
+      - name: Wrap Flatpak
+        env:
+          NAME: ${{ needs.linux.outputs.name }}
+        run: |
+          set -o pipefail
+          bash commet/scripts/build_flatpak.sh vommet-linux-x64.tar.gz vommet-testing-x86_64.flatpak "$NAME" 2>&1 | tee build.log || {
+            msg=$(tail -n 40 build.log); msg=${msg//'%'/'%25'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=flatpak failed::$msg"; exit 1; }
+
+      - name: Upload Flatpak
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-flatpak-x86_64
+          path: vommet-testing-x86_64.flatpak
+          retention-days: 14
+
+  # Release assets download without a GitHub login, unlike Actions artifacts;
+  # publish.sh fetches both from here. Only this job can write.
+  release:
+    needs: [linux, flatpak]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          merge-multiple: true
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ needs.linux.outputs.label }}
+        run: |
+          set -euo pipefail
+          sha256sum vommet-linux-x64.tar.gz vommet-testing-x86_64.flatpak > SHA256SUMS
+          branch="${GITHUB_REF_NAME//\//-}"
+          notes="Linux x64 bundle + Flatpak of ${GITHUB_REF_NAME} at ${GITHUB_SHA::8}, label ${LABEL}. Vommet tester releases: https://nether.codes/nether/vommet/releases"
+          gh release create "linux-${branch}-${GITHUB_RUN_NUMBER}" \
+            vommet-linux-x64.tar.gz vommet-testing-x86_64.flatpak SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Linux ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER}" --notes "$notes"
