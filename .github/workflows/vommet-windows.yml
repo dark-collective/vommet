@@ -1,0 +1,105 @@
+# Vommet: Windows x64 build. Runs only on the GitHub mirror
+# (github.com/dark-collective/vommet) — Forgejo reads .forgejo/workflows and
+# never sees this file, and Flutter cannot cross-build Windows from Linux.
+# Upstream's build.yml/release.yml stay untouched (they only fire on PRs and
+# GitHub releases, which the push-only mirror never has).
+name: vommet-windows
+
+on:
+  push:
+    branches: [testing, 'ci/windows*']
+    tags: ['testing-*']
+  workflow_dispatch:
+
+# Publishing a GitHub pre-release needs contents: write (GITHUB_TOKEN, no extra
+# secret). Release assets download without a GitHub login, unlike Actions
+# artifacts, so the nether.codes tester releases can fetch the zip from there.
+permissions:
+  contents: write
+
+concurrency:
+  group: vommet-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    if: github.repository != 'commetchat/commet'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: 'stable'
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            commet/build/windows/x64/plugins
+          key: cargo-windows-${{ hashFiles('Cargo.lock', 'pubspec.lock') }}
+          restore-keys: cargo-windows-
+
+      - name: Code Generation
+        run: |
+          flutter config --enable-windows-desktop
+          cd .\commet
+          git config --global core.longpaths true
+          dart run scripts/codegen.dart
+
+      - name: Version label
+        shell: bash
+        run: |
+          vt=$(bash .vommet/ci/version-tag.sh '${{ github.ref_name }}' '${{ github.run_number }}' 2>/dev/null || true)
+          echo "VOMMET_VERSION_TAG=${vt:-${{ github.ref_name }}.${{ github.run_number }}}" >> "$GITHUB_ENV"
+
+      - name: Build Windows App
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd .\commet
+          $date = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          flutter build windows --release `
+            --dart-define BUILD_MODE=release `
+            --dart-define PLATFORM=windows `
+            --dart-define GIT_HASH=${{ github.sha }} `
+            --dart-define "VERSION_TAG=$env:VOMMET_VERSION_TAG" `
+            --dart-define BUILD_DETAIL=ci `
+            --dart-define BUILD_DATE=$date
+
+      - name: Archive
+        run: tar -a -c -f vommet-windows-x64.zip -C .\commet\build\windows\x64\runner\ Release
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vommet-windows-x64
+          path: .\vommet-windows-x64.zip
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME//\//-}"
+          notes="Windows x64 build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::8}: portable zip, unsigned (SmartScreen will warn). Vommet tester releases: https://nether.codes/nether/vommet/releases"
+          gh release create "windows-${branch}-${GITHUB_RUN_NUMBER}" vommet-windows-x64.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Windows ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER}" --notes "$notes"
+          # A stable URL for the newest testing build.
+          if [ "$GITHUB_REF_NAME" = "testing" ]; then
+            gh release delete windows-testing-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+            gh release create windows-testing-latest vommet-windows-x64.zip \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Windows testing (latest)" --notes "$notes"
+          fi
