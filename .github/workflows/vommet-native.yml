@@ -1,0 +1,385 @@
+# Vommet: native desktop builds for the tester releases, next to the Flatpak,
+# APK and Windows zip. Runs only on the GitHub copy
+# (github.com/dark-collective/vommet); Forgejo never sees this file.
+#
+#   vommet-linux-x64-<tag>.tar.gz    (+ .sha256)   ubuntu-24.04
+#   vommet-linux-arm64-<tag>.tar.gz  (+ .sha256)   ubuntu-24.04-arm (native; Flutter
+#                                                  can't cross-build Linux desktop)
+#   vommet-macos-universal-<tag>.zip (+ .sha256)   macOS, UNSIGNED (no Apple
+#                                                  Developer account yet)
+#   vommet-ios-arm64-<tag>.ipa       (+ .sha256)   iOS, UNSIGNED, for sideloading
+#                                                  (AltStore/SideStore re-sign it)
+#
+# The Linux tarballs are what the Guix package repacks (it rewrites the ELF
+# interpreter and RUNPATH and runs the bundle against Guix's libraries), so:
+#   - BUILD_DETAIL=guix, never flatpak (the Flatpak flavour calls flatpak-spawn);
+#   - COMMET_PROD=1 in flutter build's environment, from a clean tree (CMake
+#     caches the app id; without it the id is im.nether.chat.develop). Checked;
+#   - glibc symbols no newer than 2.41 (Ubuntu 24.04 has 2.39). Checked;
+#   - archive = the unmodified build/linux/<arch>/release/bundle as the single
+#     top-level directory bundle/, tarred reproducibly; lib/libdartjni.so stays;
+#   - the sorted DT_NEEDED list is printed: a new soname means a new Guix input.
+# The file names, and the URLs publish.sh attaches them under
+# (https://nether.codes/nether/vommet/releases/download/<tag>/<name>), are
+# consumed by Guix-side tooling: keep them stable.
+#
+# The .ipa is for developer testers who sideload it with AltStore or SideStore,
+# which re-sign it with the tester's own Apple ID (re-signed every 7 days, push
+# notifications likely missing). TestFlight would need an Apple Developer
+# account (Vommet issue 43).
+#
+# winbranch.sh adds this file to ci/windows-testing with .vommet/ci/source-sha
+# (the candidate commit: GIT_HASH) and .vommet/ci/source-time (its commit time:
+# BUILD_DATE). The release job attaches whatever built to a native-ci-*
+# pre-release; publish.sh copies the files whose <tag> matches the release it
+# publishes and skips the rest. None of these jobs gates a cut or a release.
+name: vommet-native
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/windows-native*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # = .github/workflows/release.yml
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  # The release name and build inputs, computed once so every platform agrees.
+  meta:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+      sha: ${{ steps.m.outputs.sha }}
+      date: ${{ steps.m.outputs.date }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: m
+        name: Release tag, source commit, build date
+        run: |
+          set -euo pipefail
+          vt=$(bash .vommet/ci/version-tag.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" 2>/dev/null || true)
+          vt=${vt:-$GITHUB_REF_NAME.$GITHUB_RUN_NUMBER}
+          tag=${vt%% (*}; tag=${tag//\//-}
+          sha=$(cat .vommet/ci/source-sha 2>/dev/null || true); sha=${sha:-$GITHUB_SHA}
+          # Commit time of the source commit; the snapshot's own date is the
+          # temporary ci/windows-testing commit's, not the candidate's.
+          ct=$(cat .vommet/ci/source-time 2>/dev/null || true); ct=${ct:-$(git log -1 --format=%ct)}
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "date=${ct}000" >> "$GITHUB_OUTPUT"
+          echo "tag '$tag' (label '$vt'), source $sha, BUILD_DATE ${ct}000"
+
+  linux:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    env:
+      NAME: vommet-linux-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # clang/lld 18: third-party plugins build with -Werror, newer clang trips warnings.
+      - name: Install toolchain and native dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            clang-18 lld-18 llvm-18 g++ cmake ninja-build pkg-config binutils curl git unzip xz-utils zip \
+            libgtk-3-dev libmpv-dev libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libkeybinder-3.0-dev libasound2-dev libsecret-1-dev libjsoncpp-dev \
+            libpulse-dev libpipewire-0.3-dev >/dev/null
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+          . /etc/os-release; echo "$PRETTY_NAME, $(ldd --version | head -1)"
+
+      - name: Install Rust (stable, rustup)
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null; then
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      # A git checkout of the pinned tag works on both arches (the release
+      # archives that flutter-action downloads are x64-only).
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none --no-checkout https://github.com/flutter/flutter.git "$RUNNER_TOOL_CACHE/flutter"
+          git -C "$RUNNER_TOOL_CACHE/flutter" -c advice.detachedHead=false checkout -q "$FLUTTER_VERSION"
+          echo "$RUNNER_TOOL_CACHE/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          flutter config --no-analytics --enable-linux-desktop >/dev/null
+          flutter --version
+          clang --version | head -1; ld.lld --version; cmake --version | head -1; cargo --version
+
+      - name: Pub get + codegen
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          rm -rf build
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Build Linux (release, BUILD_DETAIL=guix)
+        env:
+          COMMET_PROD: 1
+          CC: clang
+          CXX: clang++
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          flutter build linux --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=guix \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - name: Check app id (no .develop)
+        run: |
+          set -euo pipefail
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/release/bundle
+          ids=$(strings -a $B/vommet | grep im.nether.chat | sort -u)
+          echo "$ids"
+          [ -n "$ids" ] || { echo "::error title=app id::im.nether.chat not found in bundle/vommet"; exit 1; }
+          if grep -q '\.develop' <<<"$ids"; then echo "::error title=app id::develop app id in bundle/vommet (COMMET_PROD not set?)"; exit 1; fi
+          echo "app id check OK"
+
+      - name: Check glibc (<= 2.41)
+        run: |
+          set -euo pipefail
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/release/bundle
+          vers=$(objdump -T $B/vommet $B/lib/*.so | grep -o 'GLIBC_2\.[0-9]*' | sort -t. -k2 -n -u)
+          echo "glibc symbol versions: $(echo $vers)"
+          bad=$(awk -F. '$2 > 41' <<<"$vers")
+          [ -z "$bad" ] || { echo "::error title=glibc::symbols newer than GLIBC_2.41: $(echo $bad)"; exit 1; }
+          echo "glibc check OK (max $(tail -1 <<<"$vers"))"
+          echo "GLIBCXX max (info): $(objdump -T $B/vommet $B/lib/*.so | grep -o 'GLIBCXX_3\.4\.[0-9]*' | sort -t. -k3 -n -u | tail -1)"
+
+      - name: DT_NEEDED sonames
+        run: |
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/release/bundle
+          echo "DT_NEEDED across bundle/vommet and bundle/lib/*.so (${{ matrix.arch }}):"
+          objdump -p $B/vommet $B/lib/*.so | awk '$1 == "NEEDED" {print $2}' | sort -u
+
+      - name: Package (reproducible tar)
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH/build/linux/${{ matrix.arch }}/release
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' -czf "$GITHUB_WORKSPACE/$NAME" bundle
+          cd "$GITHUB_WORKSPACE"
+          sha256sum "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+          tar -tzf "$NAME" | awk -F/ '{print $1}' | sort -u
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-linux-${{ matrix.arch }}
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # Unsigned universal (arm64 + x86_64) app until there is an Apple Developer
+  # account for signing + notarization (secrets set by the maintainer, never
+  # committed). Testers open it with right-click > Open, or
+  # `xattr -dr com.apple.quarantine /Applications/Vommet.app`.
+  macos:
+    needs: meta
+    # macos-26: connectivity_plus 7.1 needs the macOS 26 SDK (NWPath.isUltraConstrained).
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      NAME: vommet-macos-universal-${{ needs.meta.outputs.tag }}.zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Rust targets (both macOS arches)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Pub get + codegen
+        run: |
+          flutter config --no-analytics --enable-macos-desktop >/dev/null
+          flutter --version
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Build macOS (release, unsigned)
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd $PROJECT_PATH
+          flutter build macos --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=macos \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=unsigned \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          app=$(ls -d $PROJECT_PATH/build/macos/Build/Products/Release/*.app | head -1)
+          echo "app: $app"; lipo -archs "$app/Contents/MacOS/$(basename "$app" .app)" || true
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$NAME"
+          shasum -a 256 "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-macos
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # Unsigned device build (arm64), packaged as Payload/Runner.app in a zip =
+  # .ipa. Sideloading tools sign it with the tester's own Apple ID.
+  ios:
+    needs: meta
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      NAME: vommet-ios-arm64-${{ needs.meta.outputs.tag }}.ipa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # vommet_hinge (foldable iPhones) needs the iOS 27.1 SDK; the image's
+      # default Xcode may be older. Use the newest Xcode installed.
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          x=$(ls -d /Applications/Xcode_[0-9]*.app | sed -E 's#.*/Xcode_([0-9.]+)(.*)\.app#\1 &#' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -d' ' -f2)
+          sudo xcode-select -s "$x/Contents/Developer"
+          xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Rust target (iOS device)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
+
+      - name: Pub get + codegen
+        run: |
+          flutter config --no-analytics >/dev/null
+          flutter --version
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Build iOS (release, no codesign)
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd $PROJECT_PATH
+          flutter build ios --release --no-codesign \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=ios \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=sideload \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - name: Package .ipa
+        run: |
+          set -euo pipefail
+          app=$PROJECT_PATH/build/ios/iphoneos/Runner.app
+          lipo -archs "$app/Runner"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' -c 'Print :CFBundleShortVersionString' "$app/Info.plist"
+          mkdir -p ipa/Payload && cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry -X "$GITHUB_WORKSPACE/$NAME" Payload)
+          shasum -a 256 "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-ios
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # Attaches whatever built (a failed platform is just missing). Release
+  # assets download without a GitHub login; publish.sh fetches them here.
+  release:
+    needs: [meta, linux, macos, ios]
+    if: always() && needs.meta.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          RESULTS: linux ${{ needs.linux.result }}, macos ${{ needs.macos.result }}, ios ${{ needs.ios.result }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(vommet-*)
+          [ ${#files[@]} -gt 0 ] || { echo "::error::no platform built ($RESULTS)"; exit 1; }
+          ls -la "${files[@]}"
+          for f in vommet-*.sha256; do sha256sum -c "$f"; done
+          branch="${GITHUB_REF_NAME//\//-}"
+          notes="Native builds of ${GITHUB_REF_NAME} at ${GITHUB_SHA::8}, release tag ${TAG} ($RESULTS). Vommet tester releases: https://nether.codes/nether/vommet/releases"
+          gh release create "native-${branch}-${GITHUB_RUN_NUMBER}" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Native ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER}" --notes "$notes"
