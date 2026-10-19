@@ -1,0 +1,160 @@
+# Vommet: the pull request build (format, codegen, analyze, unit tests, Linux
+# release build) for PRs on nether.codes/nether/vommet. Runs only on the GitHub
+# copy (github.com/dark-collective/vommet); replaces the "linux" job that
+# Forgejo's build.yml ran on every pull_request (2026-10-18, ~17 h a week on
+# the single-slot Forgejo runner).
+#
+# How it gets here: Forgejo's pr-github.yml (main, light runner, every 10 min)
+# snapshots each open PR head as ONE parentless commit, swaps the PR's .github/
+# for this file alone (taken from ci/windows-release, never from the PR), and
+# force-pushes it as the TAG ci-pr-<number> (a tag, so github-copy.yml's
+# branch prune never deletes it mid-build). It then mirrors this run's result
+# onto the PR head as the Forgejo status "build / linux (github)", and deletes
+# the tag when the PR closes.
+#
+# Security model: the PR code is untrusted.
+# - The workflow definition is always ours: the snapshot's .github/ holds only
+#   this file, so a PR can't add or change workflows here.
+# - No secrets, no environments, read-only token (permissions: contents: read),
+#   persist-credentials off; no release, nothing written to the repo. Caches
+#   a PR writes are scoped to its own tag; the release builds
+#   (ci/windows-testing) can't restore them.
+# - Fork PRs on Forgejo are only copied when their author is a collaborator of
+#   nether/vommet (pr-github.yml decides; this file can't widen that).
+# - The Forgejo side never runs PR code: it only reads PR trees as git objects.
+name: vommet-pr
+
+on:
+  push:
+    tags: ['ci-pr-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  linux:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install failure-annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/ci_run" <<'SH'
+          #!/usr/bin/env bash
+          set -o pipefail
+          log=$(mktemp)
+          "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # flutter test marks each failing test with [E]; prefer those lines over log noise.
+            msg=$(grep -E '\[E\]$' "$log" | sed -E 's/^[0-9:+ -]+//' | sort -u | tail -n 40)
+            [ -n "$msg" ] || msg=$(grep -E '^(error|Error|ERROR)|error:|FAILED|Failed|^Target .* failed|What went wrong|^ *(error|warning|info) - ' "$log" | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log")
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=$1 failed::$msg"
+          fi
+          exit "$status"
+          SH
+          chmod +x "$HOME/bin/ci_run"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # Fork invariant (ci/fork-invariants): PRs based on main don't carry it yet.
+      - name: No unlisted Commet hosts
+        run: |
+          if [ -x .vommet/check-commet-hosts.sh ]; then ci_run .vommet/check-commet-hosts.sh
+          else echo "no .vommet/check-commet-hosts.sh on this base; skipped"; fi
+
+      # Vommet: the script the desktop widget window injects (widgets_ipc.js)
+      # against a strict widget client, in node (2026-10-19: messages without
+      # a source hung Watch Together). Bases without the check skip it.
+      - name: Widget window IPC check
+        run: |
+          if [ -f .vommet/widgets/ipc-check.mjs ]; then ci_run node .vommet/widgets/ipc-check.mjs --self-test
+          else echo "no .vommet/widgets/ipc-check.mjs on this base; skipped"; fi
+
+      # Same packages as vommet-linux.yml.
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            clang lld llvm cmake ninja-build pkg-config jq \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev \
+            libsecret-1-dev libjsoncpp-dev libpulse-dev libpipewire-0.3-dev >/dev/null
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-pr-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock') }}
+          restore-keys: cargo-pr-
+
+      - name: Configure Flutter
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          flutter --version
+          cargo --version
+
+      - name: Check code style
+        run: |
+          cd $PROJECT_PATH
+          ci_run flutter pub get
+          rm -rf lib/generated
+          ci_run dart format -o none --show all --set-exit-if-changed .
+
+      - name: Code generation
+        run: cd $PROJECT_PATH && ci_run dart run scripts/codegen.dart
+
+      - name: Analyze
+        run: cd $PROJECT_PATH && ci_run dart analyze
+
+      - name: Unit tests
+        run: cd $PROJECT_PATH && ci_run flutter test unit_test
+
+      # As Forgejo's PR build: a CI-flavoured release build (not a tester build).
+      - name: Build Linux (release)
+        run: |
+          src=$(git log -1 --format=%s | sed -nE 's/.* snapshot of ([0-9a-f]{40})$/\1/p')
+          cd $PROJECT_PATH
+          ci_run flutter build linux --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=${src:-$GITHUB_SHA} \
+            --dart-define VERSION_TAG=v0.0.0-artifact \
+            --dart-define BUILD_DETAIL=ci \
+            --dart-define BUILD_DATE=$(date +%s000)
+
+      - name: Package bundle
+        run: |
+          tar -C $PROJECT_PATH/build/linux/x64/release -czf vommet-linux-x64.tar.gz bundle
+          ls -la vommet-linux-x64.tar.gz
+
+      - name: Upload Linux bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-linux-x64
+          path: vommet-linux-x64.tar.gz
+          retention-days: 5
