@@ -1,0 +1,32 @@
+# Trial only (never filed): the SDK fork's key manager tests on a branch.
+name: trial-sdk-test
+on:
+  push:
+    branches: ['ci/xplat-e2e*']
+permissions:
+  contents: read
+jobs:
+  sdk:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+      - name: SDK tests
+        run: |
+          set -o pipefail
+          ref=$(cat .vommet/ci/sdk-test-ref)
+          git clone -q --depth 50 -b "$ref" https://nether.codes/nether/vommet-matrix-dart-sdk.git "$RUNNER_TEMP/sdk"
+          cd "$RUNNER_TEMP/sdk"
+          sudo apt-get install -y -qq --no-install-recommends libsqlite3-dev >/dev/null
+          sudo snap install yq >/dev/null 2>&1 || true
+          ./scripts/prepare_vodozemac.sh
+          dart pub get
+          dart test test/encryption test/vommet 2>&1 | tail -60
