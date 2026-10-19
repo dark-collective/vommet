@@ -1,0 +1,199 @@
+# Vommet: the web app in real browsers (Playwright: Chromium and Firefox)
+# against a throwaway Synapse in the job. First scenario: encryption survives
+# page reloads and a browser restart (Vommet issues 318 + 353),
+# .vommet/web/e2e/reload-e2ee.mjs.
+# Runs only on the GitHub copy (github.com/dark-collective/vommet).
+#
+# Security model as vommet-integration.yml: self-contained (Synapse on
+# https://localhost with a throwaway CA, made-up users, never connects to our
+# hosts), no secrets, contents: read, actions pinned by SHA, Synapse by PyPI
+# version, npm packages by exact version + lockfile. Push-only trigger.
+name: vommet-web-e2e
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/xplat-web*', 'ci/xplat-e2e*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-web-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  # The web compile, as vommet-web.yml (dart2wasm needs Dart 3.12).
+  FLUTTER_WEB_VERSION: 3.47.7
+  PROJECT_PATH: commet
+  VODOZEMAC_REF: 0.5.0
+  FRB_CODEGEN: 2.11.1
+  SYNAPSE_VERSION: 1.162.0
+
+jobs:
+  build:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # The same build as vommet-web.yml; reused while the app is unchanged
+      # (test-only edits skip straight to the browsers).
+      - name: Build cache key
+        id: key
+        run: |
+          lk=$(awk '/^  livekit_client:$/{f=1} f&&/ref:/{print $2; exit}' $PROJECT_PATH/pubspec.yaml)
+          echo "prep=web-prep-vz$VODOZEMAC_REF-frb$FRB_CODEGEN-lk$lk-${{ hashFiles('.vommet/web/prepare.sh') }}" >> "$GITHUB_OUTPUT"
+          echo "build=web-e2e-build-$FLUTTER_WEB_VERSION-${{ hashFiles('commet/lib/**', 'commet/pubspec.*', 'commet/assets/**', 'commet/web/**', 'commet/scripts/**', '.vommet/web/prepare.sh', '.vommet/web/fonts.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore built app
+        id: buildcache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: commet/build/web
+          key: ${{ steps.key.outputs.build }}
+
+      - name: Setup Flutter
+        if: steps.buildcache.outputs.cache-hit != 'true'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Restore web prep
+        if: steps.buildcache.outputs.cache-hit != 'true'
+        id: prepcache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            commet/assets/vodozemac/vodozemac_bindings_dart*
+            commet/web/e2ee.worker.dart.js
+          key: ${{ steps.key.outputs.prep }}
+
+      - name: Prepare web (vodozemac wasm + E2EE worker)
+        if: steps.buildcache.outputs.cache-hit != 'true' && steps.prepcache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          command -v wasm-pack >/dev/null || curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+          .vommet/web/prepare.sh
+
+      - name: Code generation
+        if: steps.buildcache.outputs.cache-hit != 'true'
+        run: |
+          flutter config --no-analytics
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Setup Flutter for the web compile
+        if: steps.buildcache.outputs.cache-hit != 'true'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_WEB_VERSION }}
+          channel: stable
+          cache: true
+
+      # The same build as vommet-web.yml: WebAssembly (browsers without
+      # WasmGC fall back to the JS build), fonts from our own origin.
+      - name: Build web
+        if: steps.buildcache.outputs.cache-hit != 'true'
+        run: |
+          flutter config --no-analytics
+          (cd $PROJECT_PATH && flutter pub get)
+          flutter precache --web
+          .vommet/web/fonts.sh
+          cd $PROJECT_PATH
+          flutter build web --release --wasm --no-web-resources-cdn \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=web \
+            --dart-define GIT_HASH=$GITHUB_SHA \
+            --dart-define VERSION_TAG=e2e \
+            --dart-define ENABLE_GOOGLE_SERVICES=false \
+            --dart-define BUILD_DATE=$(date +%s000) \
+            --source-maps
+
+      - name: Upload built app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-e2e-app
+          path: commet/build/web
+          retention-days: 3
+
+  browser:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+        # key: unlock with the recovery key; emoji: approve from the other
+        # device by comparing emoji.
+        flow: [key, emoji]
+    name: e2e (${{ matrix.browser }}, ${{ matrix.flow }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download built app
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: web-e2e-app
+          path: web-app
+
+      - name: Cache the Synapse venv and browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/synapse-venv-${{ env.SYNAPSE_VERSION }}
+            ~/.cache/ms-playwright
+          key: web-e2e-${{ env.SYNAPSE_VERSION }}-${{ hashFiles('.vommet/web/e2e/package-lock.json') }}-${{ matrix.browser }}
+
+      # homeserver.sh: throwaway CA + certificate, Synapse on https://localhost
+      # (port 443, so as root), open registration, no rate limits.
+      - name: Start Synapse
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends python3-venv jq xvfb >/dev/null
+          sudo -E env WORK="$RUNNER_TEMP/hs" TUWUNEL=/bin/false IT_HS=synapse \
+            SYNAPSE_VENV="$HOME/synapse-venv-$SYNAPSE_VERSION" \
+            USER1_NAME=alice USER1_PW=AliceInWonderland USER2_NAME=bob USER2_PW=CanWeFixIt \
+            bash .vommet/it/homeserver.sh
+          sudo chown -R "$(id -u)" "$HOME/synapse-venv-$SYNAPSE_VERSION"
+
+      - name: Install Playwright
+        working-directory: .vommet/web/e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Reload keeps encryption working (Vommet issues 318, 353)
+        run: |
+          # The login page starts on the test homeserver, never a real one.
+          cfg=web-app/assets/assets/config/global_config.json
+          jq '.default_homeserver = "localhost"' "$cfg" > cfg.tmp && mv cfg.tmp "$cfg"
+          python3 .vommet/web/serve.py web-app 8765 >/dev/null 2>&1 &
+          # Node trusts the throwaway CA for the other device's requests.
+          export NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/hs/ca.crt"
+          # Headed under Xvfb: headless Firefox has no WebGL at all.
+          xvfb-run -a -s '-screen 0 1280x900x24' node .vommet/web/e2e/reload-e2ee.mjs ${{ matrix.browser }} http://127.0.0.1:8765/ https://localhost e2e-out ${{ matrix.flow }}
+
+      - name: Upload results
+        if: always()
+        run: sudo cp "$RUNNER_TEMP/hs/synapse.log" e2e-out/ 2>/dev/null; sudo chown -R "$(id -u)" e2e-out || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: web-e2e-${{ matrix.browser }}-${{ matrix.flow }}
+          path: e2e-out/
+          retention-days: 7
+          if-no-files-found: ignore
