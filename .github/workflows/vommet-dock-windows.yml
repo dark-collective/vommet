@@ -1,0 +1,98 @@
+# Vommet: temporary smoke test for the Windows widget dock (feat/widget-dock-windows).
+# Runs integration_test/widget_dock_native_runner.dart on the real Windows runner
+# and captures the screen while the widget is docked / popped out / docked back.
+name: vommet-dock-windows
+
+on:
+  push:
+    branches: ['ci/windows-dockwin*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-dock-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dock-smoke:
+    if: github.repository != 'commetchat/commet'
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: dock-windows-${{ hashFiles('Cargo.lock', 'commet/pubspec.lock') }}
+          restore-keys: |
+            dock-windows-
+            smoke-windows-
+
+      - name: Code generation
+        run: |
+          flutter config --no-analytics --enable-windows-desktop
+          git config --global core.longpaths true
+          cd .\commet
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Dock smoke test
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE "dock-out"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $shots = Start-Job -ArgumentList $out -ScriptBlock {
+            param($dir)
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            for ($i = 0; $i -lt 600; $i++) {
+              $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+              $bmp.Save((Join-Path $dir ("shot-{0}.png" -f (Get-Date -Format HHmmss))))
+              $g.Dispose(); $bmp.Dispose()
+              Start-Sleep -Seconds 2
+            }
+          }
+          cd .\commet
+          flutter test integration_test/widget_dock_native_runner.dart -d windows --reporter expanded 2>&1 |
+            ForEach-Object { "{0} {1}" -f (Get-Date -Format HHmmss), $_ } |
+            Tee-Object -FilePath (Join-Path $out "dock-smoke.log")
+          $rc = $LASTEXITCODE
+          Stop-Job $shots; Remove-Job $shots -Force
+          # Keep only screenshots taken while the test held a state.
+          $log = Get-Content (Join-Path $out "dock-smoke.log")
+          $keep = @()
+          foreach ($line in $log | Select-String "DOCK-SMOKE state") {
+            $t = [int]($line.Line.Substring(0, 6))
+            $keep += $t, ($t + 1), ($t + 2), ($t + 3), ($t + 4)
+          }
+          Get-ChildItem $out -Filter "shot-*.png" | Where-Object {
+            $keep -notcontains [int]($_.BaseName.Substring(5))
+          } | Remove-Item
+          if (-not ($log | Select-String "DOCK-SMOKE PASS")) { exit 1 }
+          exit $rc
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dock-windows-${{ github.run_number }}
+          path: dock-out/
+          retention-days: 14
