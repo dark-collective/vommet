@@ -1,0 +1,232 @@
+# Vommet: TEMPORARY trial for feat/widget-dock-macos (docked widgets on macOS),
+# GitHub copy only. 1) smoke: WidgetDock.swift without Flutter, in a GUI
+# session (dock -> pop out -> close window -> slot changes keep the same page
+# load and IPC); 2) netcheck: does a WKWebView load https in an app sandboxed
+# with Vommet's entitlements (with/without network.client)? 3) the unsigned
+# universal app (as vommet-native.yml), started for 30 s, attached to a
+# pre-release so testers without a build setup can try it.
+name: vommet-macdock
+
+on:
+  push:
+    branches: ['ci/windows-macos-dock*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-macdock-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  macos:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: macos-26
+    timeout-minutes: 100
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - id: m
+        name: Tag, source, date
+        run: |
+          set -euo pipefail
+          tag="macdock-${GITHUB_RUN_NUMBER}"
+          sha=$(cat .vommet/ci/source-sha 2>/dev/null || echo "$GITHUB_SHA")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "date=$(git log -1 --format=%ct)000" >> "$GITHUB_OUTPUT"
+
+      - name: Dock smoke (WidgetDock.swift, no Flutter)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          d=.vommet/ci/macdock
+          python3 - <<'PY'
+          ipc = open("commet/assets/data/widgets_ipc.js").read()
+          common = open("commet/assets/data/widgets_common.js").read()
+          ipc = ipc.replace("//${SEND_IPC_CODE}", "function sendIpc(msg) { window.webkit.messageHandlers.vommetIpc.postMessage(msg); }")
+          open("out/ipc.js", "w").write(ipc.replace("//${WIDGETS_COMMON}", common))
+          PY
+          (cd $d && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          swiftc -swift-version 5 -O -o out/smoke commet/macos/Runner/WidgetDock.swift $d/main.swift
+          sleep 1
+          sudo log config --mode "level:debug,persist:debug" --subsystem com.apple.WebKit || true
+          sudo log config --mode "level:debug,persist:debug" --subsystem com.apple.WebCore || true
+          start=$(date '+%Y-%m-%d %H:%M:%S')
+          set +e
+          out/smoke http://127.0.0.1:8765/test.html out/ipc.js out \
+            -WebCoreLogging Fullscreen -WebKit2Logging Fullscreen 2>&1 | tee out/smoke.log
+          log show --start "$start" --info --debug --style compact \
+            --predicate '(process == "smoke" OR process BEGINSWITH "com.apple.WebKit") AND (subsystem BEGINSWITH "com.apple.WebKit" OR subsystem BEGINSWITH "com.apple.WebCore" OR eventMessage CONTAINS[c] "screen")' \
+            > out/webkit-fs.log 2>&1
+          echo "== WebKit full screen log"; grep -i -E 'full ?screen' out/webkit-fs.log | grep -v 'User Defaults' | tail -150
+          grep -q '^SMOKE PASS' out/smoke.log
+
+      - name: Sandbox network check (informational)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          d=.vommet/ci/macdock
+          for v in release release-client; do
+            app=out/NetCheck-$v.app; mkdir -p $app/Contents/MacOS
+            swiftc -swift-version 5 -O -o $app/Contents/MacOS/netcheck $d/netcheck.swift
+            cat > $app/Contents/Info.plist <<PL
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleIdentifier</key><string>im.nether.netcheck.$v</string>
+          <key>CFBundleExecutable</key><string>netcheck</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          </dict></plist>
+          PL
+            cp commet/macos/Runner/Release.entitlements out/ent-$v.plist
+            if [ $v = release-client ]; then
+              /usr/libexec/PlistBuddy -c 'Add :com.apple.security.network.client bool true' out/ent-$v.plist
+            fi
+            codesign --force -s - --entitlements out/ent-$v.plist $app
+            codesign -d --entitlements - $app 2>/dev/null | grep -o 'com.apple.security[a-z.-]*' | tr '\n' ' '; echo
+            echo "== $v"; $app/Contents/MacOS/netcheck https://example.com/ 2>&1 | tail -3
+          done
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Rust targets (both macOS arches)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Pub get + codegen
+        run: |
+          flutter config --no-analytics --enable-macos-desktop >/dev/null
+          cd $PROJECT_PATH
+          for i in 1 2 3; do flutter pub get && break; [ $i = 3 ] && exit 1; sleep 30; done
+          dart run scripts/codegen.dart
+
+      - name: Build macOS (release, unsigned)
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd $PROJECT_PATH
+          flutter build macos --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=macos \
+            --dart-define GIT_HASH=${{ steps.m.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ steps.m.outputs.tag }} \
+            --dart-define BUILD_DETAIL=unsigned \
+            --dart-define BUILD_DATE=${{ steps.m.outputs.date }}
+
+      - name: App start smoke
+        run: |
+          set -uo pipefail
+          app=$(ls -d $PROJECT_PATH/build/macos/Build/Products/Release/*.app | head -1)
+          exe="$app/Contents/MacOS/$(defaults read "$PWD/$app/Contents/Info" CFBundleExecutable)"
+          echo "app: $app"; lipo -archs "$exe" || true
+          echo "entitlements:"; codesign -d --entitlements - "$app" 2>/dev/null | grep -o 'com.apple.security[a-z.-]*' | tr '\n' ' '; echo
+          "$exe" > out/app.log 2>&1 &
+          pid=$!
+          sleep 30
+          screencapture -x out/app-start.png || true
+          if kill -0 $pid 2>/dev/null; then echo "APP ALIVE after 30 s"; kill $pid; else echo "::error::app exited"; tail -50 out/app.log; exit 1; fi
+          grep -i -m5 'widget\|dock' out/app.log || true
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          app=$(ls -d $PROJECT_PATH/build/macos/Build/Products/Release/*.app | head -1)
+          name=vommet-macos-universal-${{ steps.m.outputs.tag }}.zip
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$name"
+          shasum -a 256 "$name" > "$name.sha256"; cat "$name.sha256"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macdock
+          path: |
+            vommet-macos-*
+            out/*.log
+            out/*.png
+          retention-days: 14
+
+  # The real channel + platform view in a Flutter app (debug build).
+  integration:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Pub get + codegen
+        run: |
+          flutter config --no-analytics --enable-macos-desktop >/dev/null
+          cd $PROJECT_PATH
+          for i in 1 2 3; do flutter pub get && break; [ $i = 3 ] && exit 1; sleep 30; done
+          dart run scripts/codegen.dart
+
+      - name: Dock integration test (macOS)
+        run: |
+          set -uo pipefail
+          mkdir -p out
+          ( i=0; while [ $i -lt 400 ]; do sleep 3; screencapture -x out/it-$(printf %03d $i).png 2>/dev/null; i=$((i+1)); done ) &
+          shots=$!
+          cd $PROJECT_PATH
+          flutter test integration_test/widget_dock_macos_runner.dart -d macos 2>&1 | tee ../out/it.log
+          rc=${PIPESTATUS[0]}
+          kill $shots 2>/dev/null
+          cd ..
+          # keep only the frames around the test's states
+          ls out/it-*.png | awk 'NR%3!=0' | xargs rm -f
+          grep -q -E 'tests? passed|DOCK-SMOKE PASS' out/it.log && [ $rc = 0 ]
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macdock-integration
+          path: |
+            out/*.log
+            out/*.png
+          retention-days: 14
+
+  release:
+    needs: macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macdock
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.macos.outputs.tag }}
+        run: |
+          set -euo pipefail
+          sha256sum -c vommet-macos-*.sha256
+          gh release create "$TAG" vommet-macos-* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "macOS docked widgets trial ${GITHUB_RUN_NUMBER}" \
+            --notes "Unsigned universal macOS build of ${GITHUB_REF_NAME} (testing + feat/widget-dock-macos). Not notarized: after unzipping run xattr -dr com.apple.quarantine Vommet.app, or right-click > Open. Enable Settings > Experiments > Docked widgets."
