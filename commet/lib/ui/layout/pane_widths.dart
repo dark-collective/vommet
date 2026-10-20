@@ -1,0 +1,241 @@
+import 'package:commet/config/preferences/double_preference.dart';
+import 'package:commet/main.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+/// Vommet: a resizable desktop pane's width. Follows drags live and is saved
+/// when the drag ends.
+class PaneWidth extends ValueNotifier<double> {
+  PaneWidth(this.preference, {this.min = 180, this.max = 480})
+      : super(preference.value.clamp(min, max));
+
+  final DoublePreference preference;
+  final double min;
+  final double max;
+
+  double get defaultValue => preference.defaultValue;
+
+  /// The width to lay out with: the dragged one while the Discord-style
+  /// layout experiment is on, otherwise the default.
+  double get effective =>
+      preferences.experimentBannerLayout.value ? value : defaultValue;
+
+  static bool get resizable => preferences.experimentBannerLayout.value;
+
+  /// Within this distance of the default, a drag sticks to the default.
+  static const snap = 10.0;
+
+  /// Vommet issue 456: pulled this far past [min], letting go collapses
+  /// the pane (where it can be; see [PaneResizeHandle.onCollapse]).
+  static const collapsePull = 60.0;
+
+  /// True while a drag holds the edge [collapsePull] or more past [min].
+  final pulledPastMin = ValueNotifier<bool>(false);
+
+  // Where the pointer has dragged the edge, before snapping and clamping, so
+  // a drag can pull back out of the snap zone or from past a limit.
+  double? _dragged;
+
+  // The width when the drag started, kept when it collapses the pane.
+  double? _start;
+
+  void drag(double delta) {
+    _start ??= value;
+    final dragged = (_dragged ?? value) + delta;
+    _dragged = dragged;
+    pulledPastMin.value = dragged <= min - collapsePull;
+    final width = dragged.clamp(min, max);
+    value = (width - defaultValue).abs() <= snap ? defaultValue : width;
+  }
+
+  /// Ends a drag: keeps the (possibly snapped) width.
+  Future<void> save() {
+    _endDrag();
+    return preference.set(value);
+  }
+
+  /// Ends a drag that collapsed the pane: back to the width it started at,
+  /// for when it's widened again.
+  void endCollapsed() {
+    value = _start ?? value;
+    _endDrag();
+  }
+
+  void _endDrag() {
+    _dragged = null;
+    _start = null;
+    pulledPastMin.value = false;
+  }
+
+  Future<void> reset() {
+    _endDrag();
+    value = defaultValue;
+    return preference.set(defaultValue);
+  }
+}
+
+/// The two resizable panes either side of the chat.
+class PaneWidths {
+  /// The space/room list beside the space bar.
+  static final left = PaneWidth(preferences.leftPaneWidth);
+
+  /// The room's side panel (banner and member list).
+  static final right = PaneWidth(preferences.rightPaneWidth);
+}
+
+/// A thin grab strip on a pane's edge: drag to resize, double-click to reset.
+/// Pointing at it shows the resize cursor and lights the edge, so it can be
+/// found without trying.
+class PaneResizeHandle extends StatefulWidget {
+  static String get paneResizeHandleTooltip =>
+      Intl.message("Drag to resize, double-click to reset",
+          name: "paneResizeHandleTooltip",
+          desc: "Tooltip on the handle between panes that changes their width");
+
+  const PaneResizeHandle(this.pane,
+      {this.growsRight = true, this.onCollapse, super.key});
+
+  final PaneWidth pane;
+
+  /// Vommet issue 456: called instead of keeping the width when a drag lets
+  /// go [PaneWidth.collapsePull] past the narrowest width; null, the edge
+  /// just stops there.
+  final VoidCallback? onCollapse;
+
+  /// True when dragging right widens the pane (the left pane's right edge).
+  final bool growsRight;
+
+  /// The strip's width; the lit edge is drawn along its pane-side edge.
+  static const width = 8.0;
+
+  @override
+  State<PaneResizeHandle> createState() => _PaneResizeHandleState();
+}
+
+class _PaneResizeHandleState extends State<PaneResizeHandle> {
+  bool _hovered = false;
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final lit = _hovered || _dragging;
+    return Tooltip(
+      message: PaneResizeHandle.paneResizeHandleTooltip,
+      waitDuration: const Duration(seconds: 1),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeColumn,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) => setState(() => _dragging = true),
+          onHorizontalDragUpdate: (d) =>
+              widget.pane.drag(widget.growsRight ? d.delta.dx : -d.delta.dx),
+          onHorizontalDragEnd: (_) {
+            setState(() => _dragging = false);
+            final collapse = widget.onCollapse;
+            if (collapse != null && widget.pane.pulledPastMin.value) {
+              widget.pane.endCollapsed();
+              collapse();
+            } else {
+              widget.pane.save();
+            }
+          },
+          onHorizontalDragCancel: () {
+            setState(() => _dragging = false);
+            widget.pane.save();
+          },
+          onDoubleTap: widget.pane.reset,
+          child: SizedBox(
+            width: PaneResizeHandle.width,
+            height: double.infinity,
+            child: Align(
+              // The pane's own edge: the left pane's right, the right pane's
+              // left.
+              alignment: widget.growsRight
+                  ? Alignment.centerRight
+                  : Alignment.centerLeft,
+              child: AnimatedOpacity(
+                opacity: lit ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: SizedBox(
+                  width: 2,
+                  height: double.infinity,
+                  child:
+                      ColoredBox(color: Theme.of(context).colorScheme.primary),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Vommet issue 456: the edge of a room list collapsed to room pictures by
+/// hand. Dragging it out by [pull] or more widens the list again.
+class CollapsedPaneHandle extends StatefulWidget {
+  static String get collapsedPaneHandleTooltip =>
+      Intl.message("Drag to show room names",
+          name: "collapsedPaneHandleTooltip",
+          desc: "Tooltip on the edge of the room list collapsed to room "
+              "pictures; dragging it out widens the list again");
+
+  const CollapsedPaneHandle({required this.onExpand, super.key});
+
+  final VoidCallback onExpand;
+
+  /// How far a drag must pull the edge out to widen the list.
+  static const pull = 40.0;
+
+  @override
+  State<CollapsedPaneHandle> createState() => _CollapsedPaneHandleState();
+}
+
+class _CollapsedPaneHandleState extends State<CollapsedPaneHandle> {
+  bool _hovered = false;
+  double? _pulled;
+
+  @override
+  Widget build(BuildContext context) {
+    final lit = _hovered || _pulled != null;
+    return Tooltip(
+      message: CollapsedPaneHandle.collapsedPaneHandleTooltip,
+      waitDuration: const Duration(seconds: 1),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeColumn,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) => setState(() => _pulled = 0),
+          onHorizontalDragUpdate: (d) => _pulled = (_pulled ?? 0) + d.delta.dx,
+          onHorizontalDragEnd: (_) {
+            final pulled = _pulled ?? 0;
+            setState(() => _pulled = null);
+            if (pulled >= CollapsedPaneHandle.pull) widget.onExpand();
+          },
+          onHorizontalDragCancel: () => setState(() => _pulled = null),
+          child: SizedBox(
+            width: PaneResizeHandle.width,
+            height: double.infinity,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: AnimatedOpacity(
+                opacity: lit ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: SizedBox(
+                  width: 2,
+                  height: double.infinity,
+                  child:
+                      ColoredBox(color: Theme.of(context).colorScheme.primary),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
