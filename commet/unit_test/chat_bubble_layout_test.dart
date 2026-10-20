@@ -1,0 +1,136 @@
+import 'package:commet/ui/molecules/timeline_events/layouts/timeline_event_layout_bubble.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tiamat/config/style/theme_amoled.dart';
+import 'package:tiamat/config/style/theme_dark.dart';
+import 'package:tiamat/config/style/theme_light.dart';
+
+void main() {
+  const narrow = 800.0;
+  const wide = TimelineEventLayoutBubble.allLeftMinWidth;
+
+  group("chat bubble layout (Vommet issue 421)", () {
+    test("own messages show no avatar or name while on the right", () {
+      for (final direct in [true, false]) {
+        expect(
+            TimelineEventLayoutBubble.showsAvatarColumn(
+                isOwnMessage: true, isDirectMessage: direct, width: narrow),
+            isFalse);
+        expect(
+            TimelineEventLayoutBubble.showsName(
+                isOwnMessage: true,
+                isDirectMessage: direct,
+                showSender: true,
+                width: narrow),
+            isFalse);
+      }
+    });
+
+    test("direct messages show no avatars or names", () {
+      for (final own in [true, false]) {
+        for (final width in [narrow, wide]) {
+          expect(
+              TimelineEventLayoutBubble.showsAvatarColumn(
+                  isOwnMessage: own, isDirectMessage: true, width: width),
+              isFalse);
+          expect(
+              TimelineEventLayoutBubble.showsName(
+                  isOwnMessage: own,
+                  isDirectMessage: true,
+                  showSender: true,
+                  width: width),
+              isFalse);
+        }
+      }
+    });
+
+    test("group rooms name the first bubble of a run only", () {
+      expect(
+          TimelineEventLayoutBubble.showsAvatarColumn(
+              isOwnMessage: false, isDirectMessage: false, width: narrow),
+          isTrue);
+      expect(
+          TimelineEventLayoutBubble.showsName(
+              isOwnMessage: false,
+              isDirectMessage: false,
+              showSender: true,
+              width: narrow),
+          isTrue);
+      expect(
+          TimelineEventLayoutBubble.showsName(
+              isOwnMessage: false,
+              isDirectMessage: false,
+              showSender: false,
+              width: narrow),
+          isFalse);
+    });
+  });
+
+  group("chat bubbles on wide timelines (Vommet issue 507)", () {
+    test("own bubbles go left from the threshold on", () {
+      expect(
+          TimelineEventLayoutBubble.ownOnRight(
+              isOwnMessage: true, width: wide - 1),
+          isTrue);
+      expect(
+          TimelineEventLayoutBubble.ownOnRight(isOwnMessage: true, width: wide),
+          isFalse);
+      expect(
+          TimelineEventLayoutBubble.ownOnRight(
+              isOwnMessage: false, width: narrow),
+          isFalse);
+    });
+
+    test("own bubbles on the left get an avatar and name in group rooms", () {
+      expect(
+          TimelineEventLayoutBubble.showsAvatarColumn(
+              isOwnMessage: true, isDirectMessage: false, width: wide),
+          isTrue);
+      expect(
+          TimelineEventLayoutBubble.showsName(
+              isOwnMessage: true,
+              isDirectMessage: false,
+              showSender: true,
+              width: wide),
+          isTrue);
+    });
+  });
+
+  group("chat bubble colours (Vommet issue 502)", () {
+    test("own bubbles are readable on every built-in theme", () {
+      for (final theme in [
+        ThemeAmoled.theme,
+        ThemeDark.theme,
+        ThemeLight.theme,
+      ]) {
+        final colors = theme.colorScheme;
+        final (bubble, _) =
+            TimelineEventLayoutBubble.bubbleColors(colors, isOwnMessage: true);
+        expect(
+            TimelineEventLayoutBubble.contrastRatio(bubble, colors.onSurface),
+            greaterThanOrEqualTo(3));
+      }
+    });
+
+    test("AMOLED own bubbles are a dark shade with the surface text colour",
+        () {
+      final colors = ThemeAmoled.theme.colorScheme;
+      final (bubble, text) =
+          TimelineEventLayoutBubble.bubbleColors(colors, isOwnMessage: true);
+      expect(bubble, isNot(colors.primaryContainer));
+      expect(bubble.computeLuminance(), lessThan(0.1));
+      expect(text, colors.onSurface);
+    });
+
+    test("themes with readable containers keep them", () {
+      const colors = ColorScheme.dark(
+          primaryContainer: Color(0xff3a3a6a),
+          onPrimaryContainer: Color(0xffe0e0ff));
+      expect(TimelineEventLayoutBubble.bubbleColors(colors, isOwnMessage: true),
+          (colors.primaryContainer, colors.onPrimaryContainer));
+      expect(
+          TimelineEventLayoutBubble.bubbleColors(colors, isOwnMessage: false),
+          (colors.surfaceContainerHigh, colors.onSurface));
+    });
+  });
+}
