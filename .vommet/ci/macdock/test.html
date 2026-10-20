@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>dock smoke</title></head>
+<body style="margin:0;background:#1d3557;color:#fff;font:32px -apple-system,sans-serif">
+<div id="t" style="padding:24px">smoke</div>
+<script>
+window.loadId = Math.random().toString(36).slice(2);
+window.ticks = 0;
+setInterval(() => {
+  ticks++;
+  document.getElementById("t").textContent = "loadId " + loadId + " ticks " + ticks;
+}, 100);
+window.addEventListener("message", (e) => {
+  if (e.source !== window.parent) {
+    window.parent.postMessage({ action: "bad-source" }, "*");
+    return;
+  }
+  if (e.data && e.data.action === "ping") {
+    window.parent.postMessage({ action: "ack", loadId: loadId, n: e.data.n }, "*");
+  }
+});
+window.parent.postMessage({ action: "hello", loadId: loadId }, "*");
+</script>
+</body></html>
