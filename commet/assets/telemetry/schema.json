@@ -1,0 +1,676 @@
+{
+  "$comment": "Vommet telemetry schema. The ONLY data the collector stores. Every field is a number, a boolean, a value from a fixed list, or a code identifier (a Dart type name or a source location). There is deliberately no free-text type: message text, media, file names, room/user/event IDs, mxc URLs, server names and exception messages have nowhere to go. The single exception is the envelope's optional `tag`: a name the user types themselves to group their own reports (never filled in automatically), limited to 32 letters, digits, spaces, '-' and '_'. The client keeps an identical copy (commet/assets/telemetry/schema.json); bump `version` and update both when adding events. The collector keeps accepting every older version listed in `accepts`.",
+  "version": 30,
+  "accepts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+  "limits": { "max_body_bytes": 65536, "max_events": 200 },
+
+  "types": {
+    "ms": { "type": "int", "min": 0, "max": 86400000 },
+    "seconds": { "type": "int", "min": 0, "max": 2592000 },
+    "count": { "type": "int", "min": 0, "max": 1000000 },
+    "bytes": { "type": "int", "min": 0, "max": 1099511627776 },
+    "pixels": { "type": "int", "min": 0, "max": 100000 },
+    "http_status": { "type": "int", "min": 0, "max": 599 },
+    "outcome": { "type": "enum", "values": ["ok", "error", "cancelled"] },
+    "error_kind": {
+      "type": "enum",
+      "values": [
+        "none", "timeout", "network", "tls", "http_4xx", "http_401", "http_403", "http_404",
+        "http_413", "http_429", "http_5xx", "decode", "encode", "encrypt", "decrypt",
+        "permission", "cancelled", "not_found", "unsupported", "too_large", "state",
+        "storage", "out_of_memory", "device_busy", "http_error", "unknown"
+      ]
+    },
+    "errcode": {
+      "type": "enum",
+      "values": [
+        "M_FORBIDDEN", "M_UNKNOWN_TOKEN", "M_MISSING_TOKEN", "M_USER_LOCKED", "M_USER_SUSPENDED",
+        "M_BAD_JSON", "M_NOT_JSON", "M_NOT_FOUND", "M_LIMIT_EXCEEDED", "M_UNRECOGNIZED",
+        "M_UNKNOWN", "M_UNAUTHORIZED", "M_USER_DEACTIVATED", "M_USER_IN_USE", "M_INVALID_USERNAME",
+        "M_ROOM_IN_USE", "M_INVALID_ROOM_STATE", "M_THREEPID_IN_USE", "M_THREEPID_NOT_FOUND",
+        "M_THREEPID_AUTH_FAILED", "M_THREEPID_DENIED", "M_THREEPID_MEDIUM_NOT_SUPPORTED",
+        "M_SERVER_NOT_TRUSTED", "M_UNSUPPORTED_ROOM_VERSION", "M_INCOMPATIBLE_ROOM_VERSION",
+        "M_BAD_STATE", "M_GUEST_ACCESS_FORBIDDEN", "M_CAPTCHA_NEEDED", "M_CAPTCHA_INVALID",
+        "M_MISSING_PARAM", "M_INVALID_PARAM", "M_TOO_LARGE", "M_EXCLUSIVE", "M_RESOURCE_LIMIT_EXCEEDED",
+        "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM", "M_WEAK_PASSWORD", "M_UNABLE_TO_AUTHORISE_JOIN",
+        "M_UNABLE_TO_GRANT_JOIN", "M_NOT_YET_UPLOADED", "M_CANNOT_OVERWRITE_MEDIA", "M_WRONG_ROOM_KEYS_VERSION",
+        "M_CONNECTION_FAILED", "M_CONNECTION_TIMEOUT", "M_UNACTIONABLE", "M_UNKNOWN_POS",
+        "other"
+      ]
+    },
+    "mime": { "type": "pattern", "pattern": "^[a-z]{1,16}/[a-z0-9][a-z0-9.+-]{0,63}$" },
+    "experiment_key": {
+      "$comment": "Every experiment's preference key; a client reports any other enabled experiment as \"other\". Add a new experiment's key here (client and collector) to see it by name.",
+      "type": "enum",
+      "values": [
+        "experiment_auto_gain_control", "experiment_call_cards", "experiment_dm_trust_warnings",
+        "experiment_enabled_e2ee_element_call", "experiment_encryption_markers", "experiment_manage_space_rooms",
+        "experiment_message_timestamps", "experiment_multi_sfu", "experiment_noise_suppression",
+        "experiment_offline_sending", "experiment_quick_profile_controls", "experiment_room_calls",
+        "experiment_secure_setup", "experiment_sidebar_desktop_drag", "experiment_sidebar_newest_unread_dms",
+        "experiment_sidebar_pinned_rooms", "experiment_sidebar_subspace_guides", "experiment_sliding_sync",
+        "experiment_unified_chat_list", "experiment_voice_room_chat", "vommet_experiment_banner_layout",
+        "vommet_experiment_block_users", "vommet_experiment_deleted_message_placeholders",
+        "vommet_experiment_docked_widgets", "vommet_experiment_forward_messages",
+        "vommet_experiment_last_room_per_space", "vommet_experiment_lightbox_gallery",
+        "vommet_experiment_message_drafts", "vommet_experiment_redacted_mode", "vommet_experiment_select_messages",
+        "vommet_experiment_space_nicknames", "vommet_experiment_stream_watching",
+        "vommet_experiment_thread_read_state", "other"
+      ]
+    },
+    "experiment_keys": { "type": "list", "max": 64, "item": { "type": "experiment_key" } },
+    "code_type": { "type": "pattern", "pattern": "^[A-Za-z_$][A-Za-z0-9_$<>, ?]{0,79}$" },
+    "code_name": { "type": "pattern", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
+    "code_frames": {
+      "type": "list", "max": 40,
+      "item": { "type": "pattern", "pattern": "^(package:[a-z0-9_]{1,64}/[A-Za-z0-9_/.-]{1,160}\\.dart|dart:[a-z_]{1,32}(/[a-z_]{1,64}\\.dart)?):[0-9]{1,6}( [A-Za-z0-9_$.<>]{1,120})?$" }
+    },
+    "java_type": { "type": "pattern", "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]{0,159}$" },
+    "java_frames": {
+      "type": "list", "max": 25,
+      "item": { "type": "pattern", "pattern": "^[A-Za-z_$][A-Za-z0-9_$.<>-]{0,199}:[0-9]{1,6}$" }
+    },
+    "timers": {
+      "type": "list", "max": 64,
+      "item": {
+        "type": "object",
+        "fields": {
+          "name": { "type": "code_name", "required": true },
+          "calls": { "type": "count", "required": true },
+          "total_ms": { "type": "ms", "required": true }
+        }
+      }
+    },
+    "feature": {
+      "type": "enum",
+      "values": [
+        "voice_message", "sticker_import", "personal_packs", "explore", "voice_isolation",
+        "screenshare", "screenshare_audio", "media_mosaic", "room_banner", "gradient_theme",
+        "sliding_sync", "gif_search", "sticker_picker", "copy_selection", "space_remove_room",
+        "room_picker_search", "welcome", "sso_login", "native_oidc", "dm_invite", "notifications",
+        "push_gateway", "image_cache"
+      ]
+    },
+    "variant": {
+      "type": "enum",
+      "values": [
+        "none", "off", "auto", "rnnoise", "dfn3", "signal", "telegram", "own", "saved",
+        "suggested", "custom", "screen", "window", "app", "system", "static", "animated",
+        "unified_push", "firebase", "local", "thumbnail", "full", "light", "dark"
+      ]
+    },
+    "signed_seconds": { "type": "int", "min": -31536000, "max": 31536000 },
+    "quality": { "type": "enum", "values": ["unknown", "lost", "poor", "good", "excellent"] },
+    "http_family": {
+      "$comment": "Which kind of homeserver request, from the URL's path shape only; the URL itself (room, user, media and event IDs) is never kept.",
+      "type": "enum",
+      "values": [
+        "sync", "send", "redact", "media_download", "media_thumbnail", "media_upload", "keys", "profile",
+        "state", "messages", "members", "push", "account_data", "context", "join", "login", "well_known",
+        "voip", "other"
+      ]
+    },
+    "desktop": {
+      "type": "enum",
+      "values": [
+        "gnome", "kde", "xfce", "cinnamon", "mate", "lxqt", "lxde", "budgie", "cosmic", "pantheon",
+        "deepin", "sway", "hyprland", "i3", "other", "unknown"
+      ]
+    },
+    "action": {
+      "type": "enum",
+      "values": [
+        "open", "start", "stop", "send", "receive", "play", "record", "import", "export",
+        "search", "join", "load", "save", "apply", "enable", "disable", "select", "copy",
+        "remove", "login", "accept", "decline", "show", "error"
+      ]
+    }
+  },
+
+  "envelope": {
+    "v": { "type": "int", "min": 1, "max": 1000, "required": true },
+    "install": { "type": "pattern", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "required": true },
+    "session": { "type": "pattern", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "required": true },
+    "app_version": { "type": "pattern", "pattern": "^[A-Za-z0-9._+/-]{1,80}$", "required": true },
+    "flavor": { "type": "enum", "values": ["testing", "release", "debug", "profile"], "required": true },
+    "platform": { "type": "enum", "values": ["windows", "linux", "macos", "android", "ios", "web"], "required": true },
+    "os_id": { "type": "pattern", "pattern": "^[a-z0-9._-]{1,32}$" },
+    "os_build": { "type": "int", "min": 0, "max": 10000000 },
+    "display": { "type": "enum", "values": ["wayland", "x11", "windows", "macos", "android", "ios", "web", "unknown"] },
+    "packaging": { "type": "enum", "values": ["flatpak", "apk", "zip", "msix", "appimage", "deb", "source", "unknown"] },
+    "cpu_cores": { "type": "int", "min": 0, "max": 1024 },
+    "ram_mb": { "type": "int", "min": 0, "max": 10000000 },
+    "low_ram": { "type": "bool" },
+    "screen_w": { "type": "pixels" },
+    "screen_h": { "type": "pixels" },
+    "dpr_x100": { "type": "int", "min": 0, "max": 2000 },
+    "text_scale_x100": { "type": "int", "min": 0, "max": 1000 },
+    "bold_text": { "type": "bool" },
+    "reduce_motion": { "type": "bool" },
+    "high_contrast": { "type": "bool" },
+    "desktop": { "type": "desktop" },
+    "gl_software": { "type": "bool" },
+    "tag": { "type": "pattern", "pattern": "^[A-Za-z0-9_-]([A-Za-z0-9 _-]{0,30}[A-Za-z0-9_-])?$" },
+    "events": { "type": "events", "required": true }
+  },
+
+  "events": {
+    "session_start": {
+      "first_frame_ms": { "type": "ms" },
+      "accounts": { "type": "count" },
+      "telemetry_new": { "type": "bool" },
+      "experiments": { "type": "experiment_keys" }
+    },
+    "app_ready": {
+      "ms": { "type": "ms", "required": true },
+      "rooms": { "type": "count" },
+      "spaces": { "type": "count" },
+      "accounts": { "type": "count" },
+      "sliding_sync": { "type": "bool" },
+      "db_initial": { "type": "timers" },
+      "db_postload": { "type": "timers" },
+      "startup": { "type": "timers" }
+    },
+    "sync_initial": {
+      "ms": { "type": "ms", "required": true },
+      "rooms": { "type": "count" },
+      "sliding_sync": { "type": "bool" },
+      "own_server": { "type": "bool" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" }
+    },
+    "sync_error": {
+      "error_kind": { "type": "error_kind", "required": true },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" },
+      "consecutive": { "type": "count" },
+      "own_server": { "type": "bool" }
+    },
+    "attachment_send": {
+      "kind": { "type": "enum", "values": ["image", "video", "audio", "file", "voice", "sticker"], "required": true },
+      "mime": { "type": "mime" },
+      "bytes": { "type": "bytes" },
+      "width": { "type": "pixels" },
+      "height": { "type": "pixels" },
+      "encrypted": { "type": "bool" },
+      "batch_size": { "type": "count" },
+      "batch_index": { "type": "count" },
+      "thumbnail": { "type": "bool" },
+      "resolve_ms": { "type": "ms" },
+      "exif_ms": { "type": "ms" },
+      "process_ms": { "type": "ms" },
+      "queue_ms": { "type": "ms" },
+      "thumbnail_ms": { "type": "ms" },
+      "encrypt_ms": { "type": "ms" },
+      "upload_ms": { "type": "ms" },
+      "send_ms": { "type": "ms" },
+      "total_ms": { "type": "ms" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "media_load": {
+      "variant": { "type": "variant" },
+      "bytes": { "type": "bytes" },
+      "encrypted": { "type": "bool" },
+      "cached": { "type": "bool" },
+      "ms": { "type": "ms" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "call_join": {
+      "kind": { "type": "enum", "values": ["matrixrtc", "legacy_voip"], "required": true },
+      "ms": { "type": "ms" },
+      "encrypted": { "type": "bool" },
+      "participants": { "type": "count" },
+      "sfus": { "type": "count" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" }
+    },
+    "capture": {
+      "source": { "type": "enum", "values": ["mic", "camera", "screen", "screen_audio"], "required": true },
+      "action": { "type": "enum", "values": ["start", "unmute", "enumerate"], "required": true },
+      "api": { "type": "enum", "values": ["livekit", "webrtc", "android_projection"] },
+      "device_choice": { "type": "enum", "values": ["default", "preferred", "preferred_missing"] },
+      "device_type": { "type": "enum", "values": ["builtin", "usb", "bluetooth", "virtual", "hdmi", "unknown"] },
+      "devices": { "type": "count" },
+      "ms": { "type": "ms" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" }
+    },
+    "call_leave": {
+      "kind": { "type": "enum", "values": ["matrixrtc", "legacy_voip"], "required": true },
+      "ms": { "type": "ms" },
+      "state_ms": { "type": "ms" },
+      "disconnect_ms": { "type": "ms" },
+      "heartbeat_ms": { "type": "ms" },
+      "failed_step": { "type": "enum", "values": ["none", "state", "disconnect", "heartbeat"] },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "call_end": {
+      "kind": { "type": "enum", "values": ["matrixrtc", "legacy_voip"], "required": true },
+      "seconds": { "type": "seconds" },
+      "reason": { "type": "enum", "values": ["hangup", "remote_hangup", "disconnected", "error", "app_exit", "unknown"] },
+      "reconnects": { "type": "count" },
+      "max_participants": { "type": "count" }
+    },
+    "frame_stats": {
+      "frames": { "type": "count", "required": true },
+      "slow_frames": { "type": "count" },
+      "frozen_frames": { "type": "count" },
+      "worst_ms": { "type": "ms" },
+      "p95_ms": { "type": "ms" },
+      "build_p95_ms": { "type": "ms" },
+      "build_worst_ms": { "type": "ms" },
+      "raster_p95_ms": { "type": "ms" },
+      "raster_worst_ms": { "type": "ms" }
+    },
+    "resume": {
+      "away_s": { "type": "seconds", "required": true },
+      "accounts": { "type": "count" },
+      "in_flight": { "type": "count" },
+      "stale_ms": { "type": "ms" },
+      "first_sync_ms": { "type": "ms" },
+      "last_sync_ms": { "type": "ms" },
+      "errors": { "type": "count" },
+      "timeouts": { "type": "count" }
+    },
+    "loop_lag": {
+      "samples": { "type": "count", "required": true },
+      "p95_ms": { "type": "ms" },
+      "worst_ms": { "type": "ms" },
+      "stalls_100ms": { "type": "count" },
+      "stalls_1s": { "type": "count" }
+    },
+    "sync_stats": {
+      "syncs": { "type": "count", "required": true },
+      "apply_p95_ms": { "type": "ms" },
+      "apply_worst_ms": { "type": "ms" },
+      "apply_total_ms": { "type": "ms" },
+      "save_p95_ms": { "type": "ms" },
+      "save_worst_ms": { "type": "ms" },
+      "followup_p95_ms": { "type": "ms" },
+      "followup_worst_ms": { "type": "ms" },
+      "followup_total_ms": { "type": "ms" },
+      "rooms_total": { "type": "count" },
+      "events_total": { "type": "count" },
+      "state_total": { "type": "count" },
+      "worst_events": { "type": "count" },
+      "gap_worst_ms": { "type": "ms" },
+      "gaps_90s": { "type": "count" },
+      "ss_resets": { "type": "count" },
+      "ss_initial_rooms": { "type": "count" },
+      "ss_initial_rounds": { "type": "count" }
+    },
+    "first_sync": {
+      "request_at_ms": { "type": "ms" },
+      "response_at_ms": { "type": "ms" },
+      "done_at_ms": { "type": "ms", "required": true },
+      "blocked_ms": { "type": "ms" },
+      "blocked_worst_ms": { "type": "ms" },
+      "stalls_100ms": { "type": "count" }
+    },
+    "ss_first_round": {
+      "had_position": { "type": "bool", "required": true },
+      "initial_rooms": { "type": "count" },
+      "rooms": { "type": "count" },
+      "resets": { "type": "count" }
+    },
+    "perf_summary": {
+      "uptime_s": { "type": "seconds" },
+      "rss_mb": { "type": "count" },
+      "image_cache_mb": { "type": "count" },
+      "image_cache_max_mb": { "type": "count" },
+      "image_cache_count": { "type": "count" },
+      "image_cache_live": { "type": "count" },
+      "image_cache_pending": { "type": "count" },
+      "timers": { "type": "timers" },
+      "db": { "type": "timers" },
+      "timelines_live": { "type": "count" },
+      "db_mb": { "type": "count" },
+      "dropped": { "type": "count" },
+      "overflow": { "type": "count" },
+      "clock_skew_s": { "type": "signed_seconds" }
+    },
+    "ui_stall": {
+      "kind": { "type": "enum", "values": ["loop", "platform", "frame"], "required": true },
+      "ms": { "type": "ms", "required": true },
+      "ongoing": { "type": "bool" },
+      "foreground": { "type": "bool" },
+      "in_call": { "type": "bool" },
+      "since_call_end_s": { "type": "seconds" },
+      "call_participants": { "type": "count" }
+    },
+    "memory_pressure": {
+      "uptime_s": { "type": "seconds" },
+      "rss_mb": { "type": "count" },
+      "image_cache_mb": { "type": "count" },
+      "timelines_live": { "type": "count" },
+      "foreground": { "type": "bool" }
+    },
+    "http_stats": {
+      "family": { "type": "http_family", "required": true },
+      "own_server": { "type": "bool" },
+      "requests": { "type": "count", "required": true },
+      "errors": { "type": "count" },
+      "p95_ms": { "type": "ms" },
+      "worst_ms": { "type": "ms" },
+      "bytes_rx": { "type": "bytes" }
+    },
+    "message_send": {
+      "kind": { "type": "enum", "values": ["text", "reply", "edit", "thread", "reaction", "redaction", "sticker"], "required": true },
+      "encrypted": { "type": "bool" },
+      "chars": { "type": "count" },
+      "html": { "type": "bool" },
+      "mentions": { "type": "count" },
+      "markdown_ms": { "type": "ms" },
+      "send_ms": { "type": "ms", "required": true },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "crypto_state": {
+      "account_index": { "type": "count" },
+      "accounts": { "type": "count" },
+      "own_server": { "type": "bool" },
+      "encryption": { "type": "bool", "required": true },
+      "cross_signing": { "type": "bool" },
+      "cross_signing_cached": { "type": "bool" },
+      "key_backup": { "type": "bool" },
+      "key_backup_cached": { "type": "bool" },
+      "own_device_verified": { "type": "bool" },
+      "devices": { "type": "count" },
+      "unverified_devices": { "type": "count" },
+      "blocked_devices": { "type": "count" },
+      "rooms": { "type": "count" },
+      "encrypted_rooms": { "type": "count" }
+    },
+    "call_stats": {
+      "quality": { "type": "quality", "required": true },
+      "minute": { "type": "count" },
+      "participants": { "type": "count" },
+      "remote_poor": { "type": "count" },
+      "encrypted": { "type": "bool" },
+      "screen_share": { "type": "bool" },
+      "reconnects": { "type": "count" },
+      "audio_rx_tracks": { "type": "count" },
+      "rx_packets": { "type": "count" },
+      "rx_lost": { "type": "count" },
+      "rx_jitter_ms": { "type": "ms" },
+      "rx_concealed_ms": { "type": "ms" },
+      "rx_concealments": { "type": "count" },
+      "rx_kbps": { "type": "count" },
+      "tx_packets": { "type": "count" },
+      "tx_lost": { "type": "count" },
+      "tx_rtt_ms": { "type": "ms" },
+      "tx_jitter_ms": { "type": "ms" },
+      "tx_kbps": { "type": "count" },
+      "video_rx_tracks": { "type": "count" },
+      "audio_published": { "type": "count" },
+      "audio_muted": { "type": "count" },
+      "audio_unsubscribed": { "type": "count" },
+      "audio_rx_no_packets": { "type": "count" },
+      "e2ee_ok": { "type": "count" },
+      "e2ee_pending": { "type": "count" },
+      "e2ee_missing_key": { "type": "count" },
+      "e2ee_failed": { "type": "count" },
+      "subscribed_before_key": { "type": "count" },
+      "keyed_participants": { "type": "count" },
+      "video_rx_fps": { "type": "count" },
+      "video_rx_height": { "type": "pixels" },
+      "video_rx_dropped": { "type": "count" },
+      "video_tx_height": { "type": "pixels" },
+      "video_tx_fps": { "type": "count" },
+      "video_tx_limited": { "type": "count" },
+      "ns_experiment": { "type": "bool" },
+      "ns_mode": { "type": "enum", "values": ["off", "standard", "best", "auto"] },
+      "ns_webrtc": { "type": "bool" },
+      "mic_volume_pct": { "type": "count" },
+      "ns_installed": { "type": "bool" },
+      "ns_engine": { "type": "enum", "values": ["none", "rnnoise", "dfn3"] },
+      "ns_auto": { "type": "enum", "values": ["none", "rnnoise", "dfn3"] },
+      "ns_demoted": { "type": "bool" },
+      "ns_processed": { "type": "count" },
+      "ns_bypassed": { "type": "count" },
+      "ns_resampled": { "type": "count" },
+      "ns_rate": { "type": "count" },
+      "ns_dfn3_us": { "type": "count" },
+      "ns_bench_us": { "type": "count" }
+    },
+    "crash": {
+      "source": { "type": "enum", "values": ["flutter", "platform", "zone", "isolate", "logged"], "required": true },
+      "fatal": { "type": "bool" },
+      "error_type": { "type": "code_type", "required": true },
+      "frames": { "type": "code_frames" },
+      "dart_build_id": { "type": "pattern", "pattern": "^[0-9a-f]{8,64}$" },
+      "dart_pcs": { "type": "list", "max": 40, "item": { "type": "pattern", "pattern": "^[iv]\\+[0-9a-f]{1,12}$" } },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" },
+      "repeat": { "type": "count" }
+    },
+    "exit_reason": {
+      "reason": { "type": "enum", "values": ["exit_self", "signaled", "low_memory", "crash", "crash_native", "anr", "initialization_failure", "permission_change", "excessive_resource_usage", "user_requested", "user_stopped", "dependency_died", "other", "unknown"], "required": true },
+      "status": { "type": "int", "min": -2147483648, "max": 2147483647 },
+      "importance": { "type": "enum", "values": ["foreground", "foreground_service", "visible", "perceptible", "service", "cached", "gone", "other"] },
+      "age": { "type": "seconds" },
+      "java_error_type": { "type": "java_type" },
+      "java_outer_type": { "type": "java_type" },
+      "java_frames": { "type": "java_frames" },
+      "native_frames": { "type": "list", "max": 30, "item": { "type": "pattern", "pattern": "^[A-Za-z0-9_.+?-]{1,80}(![A-Za-z0-9_$.]{1,200})?\\+0x[0-9a-f]{1,16}$" } },
+      "native_thread": { "type": "pattern", "pattern": "^[A-Za-z0-9_ .:#/-]{1,32}$" },
+      "abort_kind": { "type": "enum", "values": ["none", "check_failed", "rust_panic", "jni", "fortify", "heap", "other"] }
+    },
+    "feature": {
+      "feature": { "type": "feature", "required": true },
+      "action": { "type": "action", "required": true },
+      "variant": { "type": "variant" },
+      "ms": { "type": "ms" },
+      "count": { "type": "count" },
+      "bytes": { "type": "bytes" },
+      "outcome": { "type": "outcome" },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" }
+    },
+    "room_open": {
+      "ms": { "type": "ms", "required": true },
+      "events": { "type": "count" },
+      "history_requested": { "type": "bool" },
+      "convert_ms": { "type": "ms" },
+      "startup_loads_running": { "type": "bool" },
+      "encrypted": { "type": "bool" },
+      "utd": { "type": "count" },
+      "at_start": { "type": "bool" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" }
+    },
+    "timeline_crypto": {
+      "open_s": { "type": "seconds" },
+      "utd_at_open": { "type": "count", "required": true },
+      "utd_at_close": { "type": "count", "required": true },
+      "key_arrivals": { "type": "count" },
+      "decrypted": { "type": "count" },
+      "removed": { "type": "count" },
+      "removed_utd": { "type": "count" },
+      "events_peak": { "type": "count" },
+      "events_at_close": { "type": "count" },
+      "utd_no_key": { "type": "count" },
+      "utd_corrupted": { "type": "count" },
+      "utd_requestable": { "type": "count" },
+      "utd_history_not_shared": { "type": "count" }
+    },
+    "key_request": {
+      "source": { "type": "enum", "values": ["manual", "auto"], "required": true },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "notify_setup": {
+      "notifier": { "type": "enum", "values": ["unifiedpush", "firebase", "android_local", "linux", "windows", "other", "none"], "required": true },
+      "permission": { "type": "bool" },
+      "enabled": { "type": "bool" },
+      "up_endpoint": { "type": "bool" },
+      "up_distributor": { "type": "bool" },
+      "pushers": { "type": "count" },
+      "own_pusher": { "type": "bool" },
+      "master_muted": { "type": "bool" },
+      "rooms": { "type": "count" },
+      "rooms_unread": { "type": "count" },
+      "rooms_muted": { "type": "count" },
+      "rooms_mentions": { "type": "count" },
+      "account_index": { "type": "count" },
+      "accounts": { "type": "count" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "notify_counts": {
+      "pushes": { "type": "count", "required": true },
+      "shown": { "type": "count" },
+      "quieted_other_device": { "type": "count" },
+      "quieted_other": { "type": "count" },
+      "dropped_active_room": { "type": "count" },
+      "dropped_dnd": { "type": "count" },
+      "dropped_off": { "type": "count" },
+      "dropped_other": { "type": "count" },
+      "error_notice": { "type": "count" },
+      "failed": { "type": "count" },
+      "handle_ms_total": { "type": "ms" },
+      "handle_ms_max": { "type": "ms" }
+    },
+    "history_load": {
+      "ms": { "type": "ms", "required": true },
+      "events": { "type": "count" },
+      "startup_loads_running": { "type": "bool" },
+      "encrypted": { "type": "bool" },
+      "federated_room": { "type": "bool" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "reply_lookup": {
+      "lookups": { "type": "count", "required": true },
+      "found_cached": { "type": "count" },
+      "found_server": { "type": "count" },
+      "missing": { "type": "count" },
+      "errors_not_found": { "type": "count" },
+      "errors_forbidden": { "type": "count" },
+      "errors_timeout": { "type": "count" },
+      "errors_other": { "type": "count" },
+      "federated_lookups": { "type": "count" },
+      "federated_missing": { "type": "count" },
+      "worst_ms": { "type": "ms" }
+    },
+    "nickname_apply": {
+      "trigger": { "type": "enum", "values": ["space_set", "space_clear", "room_set", "room_clear", "join", "global_change", "global_recheck"], "required": true },
+      "rooms": { "type": "count" },
+      "written": { "type": "count" },
+      "unchanged": { "type": "count" },
+      "kept": { "type": "count" },
+      "not_joined": { "type": "count" },
+      "failed": { "type": "count" },
+      "rate_limited": { "type": "count" },
+      "read_fallback": { "type": "count" },
+      "space_rules": { "type": "count" },
+      "room_rules": { "type": "count" },
+      "ms": { "type": "ms" },
+      "fail_step": { "type": "enum", "values": ["save", "read", "profile", "write"] },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" },
+      "error_type": { "type": "code_type" },
+      "http_status": { "type": "http_status" },
+      "errcode": { "type": "errcode" }
+    },
+    "history_share": {
+      "$comment": "Shared encrypted history (MSC4268): one per history bundle sent (we invited someone) or received (we accepted an invite), and per new outbound megolm session. Counts and fixed words only; never which room, who, keys or session ids.",
+      "direction": { "type": "enum", "values": ["send", "receive", "outbound_session"], "required": true },
+      "outcome": { "type": "enum", "values": ["sent", "nothing_shareable", "no_cross_signed_devices", "identity_changed", "disabled", "error", "imported", "too_late", "sender_unknown", "sender_not_cross_signed", "download_failed", "invalid", "shared", "not_shared", "visibility_unknown"], "required": true },
+      "keys": { "type": "count" },
+      "withheld": { "type": "count" },
+      "skipped": { "type": "count" },
+      "devices": { "type": "count" },
+      "ms": { "type": "ms" }
+    },
+    "screenshare_audio": {
+      "$comment": "One per screen share, sampled a few seconds after it starts: the audio picked (none / all apps / one app), what the picker could offer, and, on Linux, what the capture recorded: playback streams seen, left out (own app, rules) or recorded, how many recordings landed on a sink monitor vs another source (an input device), loopback/effects-looking streams, and how long the mix had input and was audible. Counts, durations and fixed words; never app names, binaries or device names.",
+      "mode": { "type": "enum", "values": ["none", "system", "app"], "required": true },
+      "app_id": { "type": "enum", "values": ["binary", "name"] },
+      "audio_track": { "type": "bool" },
+      "wayland": { "type": "bool" },
+      "list_outcome": { "type": "enum", "values": ["ok", "error"] },
+      "sources": { "type": "count" },
+      "sources_self": { "type": "count" },
+      "apps_listed": { "type": "count" },
+      "capture_running": { "type": "bool" },
+      "server": { "type": "enum", "values": ["pipewire", "pulseaudio", "unknown"] },
+      "streams_seen": { "type": "count" },
+      "streams_self": { "type": "count" },
+      "streams_excluded": { "type": "count" },
+      "streams_matched": { "type": "count" },
+      "streams_virtual": { "type": "count" },
+      "streams_on_monitor": { "type": "count" },
+      "streams_on_other": { "type": "count" },
+      "streams_failed": { "type": "count" },
+      "ms_mixed": { "type": "ms" },
+      "ms_with_input": { "type": "ms" },
+      "ms_audible": { "type": "ms" },
+      "after_ms": { "type": "ms" }
+    },
+    "web_env": {
+      "$comment": "Web build only, once per session: which compiled build runs (WebAssembly or JS), the browser engine family and its major version, whether the page is cross-origin isolated, the WebGL version, and why the JS build runs (no WasmGC, or the engine isn't on the loader's WebAssembly allow list). Never the user agent string, OS, screen or GPU name.",
+      "build": { "type": "enum", "values": ["wasm", "js"], "required": true },
+      "engine": { "type": "enum", "values": ["blink", "gecko", "webkit", "other"], "required": true },
+      "engine_major": { "type": "int", "min": 0, "max": 1000 },
+      "cross_origin_isolated": { "type": "bool" },
+      "webgl": { "type": "int", "min": 0, "max": 2 },
+      "fallback_reason": { "type": "enum", "values": ["no_wasmgc", "allowlist", "none"], "required": true }
+    },
+    "repaint_stats": {
+      "$comment": "Frame counter, one per top-level view shown since the last perf summary (every 15 minutes): how many minutes the view was showing, how many frames the app drew in them and in the busiest minute, the 95th-percentile build (Dart) and raster (GPU) time, and on Linux how often GTK redrew the window (draw signals, frame-clock paint cycles). A minute counts for the view showing when it ended. The view is a name from a fixed list, never which room or space.",
+      "view": { "type": "enum", "values": ["home", "space", "room", "settings"], "required": true },
+      "minutes": { "type": "count", "required": true },
+      "frames": { "type": "count", "required": true },
+      "frames_max_min": { "type": "count" },
+      "build_p95_ms": { "type": "ms" },
+      "raster_p95_ms": { "type": "ms" },
+      "native_draws": { "type": "count" },
+      "native_draws_max_min": { "type": "count" },
+      "native_paints": { "type": "count" }
+    },
+    "secure_unlock": {
+      "$comment": "Unlocking an existing account's messages on a new device (the sign-in setup's \"Unlocking your messages\" screen): how (recovery key, phrase/password, or approval from another device), how long each step took and how long the screen was up. Failures say only which kind (wrong or mistyped key, nothing stored to unlock). No key material, no ids.",
+      "path": { "type": "enum", "values": ["recovery_key", "passphrase", "approval"], "required": true },
+      "open_ms": { "type": "ms" },
+      "cache_ms": { "type": "ms" },
+      "self_sign_ms": { "type": "ms" },
+      "finish_ms": { "type": "ms" },
+      "screen_ms": { "type": "ms", "required": true },
+      "outcome": { "type": "outcome", "required": true },
+      "failure": { "type": "enum", "values": ["wrong_key", "malformed_key", "nothing_to_unlock", "other"] },
+      "error_kind": { "type": "error_kind" }
+    },
+    "history_keys_import": {
+      "$comment": "The background import of every message key from the online key backup after unlocking (or approval, or at start-up for an account confirmed elsewhere): how long it took, how many keys the backup holds, and whether it worked. A count only, never which rooms.",
+      "trigger": { "type": "enum", "values": ["unlock", "approval", "startup"], "required": true },
+      "ms": { "type": "ms", "required": true },
+      "sessions": { "type": "count" },
+      "outcome": { "type": "outcome", "required": true },
+      "error_kind": { "type": "error_kind" }
+    }
+  }
+}
