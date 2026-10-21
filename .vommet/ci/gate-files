@@ -1,0 +1,2 @@
+lib/client/matrix/components/sidebar_entries/matrix_sidebar_entries_component.dart
+unit_test/element_space_order_test.dart
