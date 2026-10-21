@@ -1,0 +1,12 @@
+lib/client/components/url_preview/url_preview_room_policy.dart
+lib/client/matrix/components/url_preview/matrix_room_url_previews.dart
+lib/client/matrix/components/url_preview/matrix_url_preview_component.dart
+lib/ui/pages/settings/categories/room/advanced/room_advanced_settings_page.dart
+lib/ui/pages/settings/categories/room/bridges/room_bridges_settings_page.dart
+lib/ui/pages/settings/categories/room/general/room_general_settings_page.dart
+lib/ui/pages/settings/categories/room/general/room_general_url_previews.dart
+lib/ui/pages/settings/categories/room/general/settings_leave_button.dart
+lib/ui/pages/settings/categories/room/settings_category_room.dart
+lib/ui/pages/settings/categories/space/settings_category_space.dart
+lib/ui/pages/settings/categories/space/space_general_settings_page.dart
+unit_test/room_url_previews_bridges_test.dart
