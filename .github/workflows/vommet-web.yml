@@ -1,0 +1,421 @@
+# Vommet: web app (Flutter web) for self-hosters, published as a container
+# image on ghcr.io/dark-collective/vommet-web, and as the hosted instance on
+# Cloudflare Pages (project vommet-web). Runs only on the GitHub copy
+# (github.com/dark-collective/vommet); Forgejo reads .forgejo/workflows and
+# never sees this file.
+#
+# Two stages, so that only what a release actually published gets tagged:
+#
+# 1. build (a candidate: ci/windows-testing, which winbranch.sh pushes for every
+#    cut; or a trial branch ci/xplat-web*): flutter build web, smoke test in
+#    headless Chrome, image build + check (check-image.sh), and the static build
+#    as artifact "vommet-web-build". A candidate pushes NO image: most never
+#    become a release under the name they were labelled with. Trial branches
+#    push <branch>.<run> + <branch> as before.
+# 2. release (ci/windows-web-release, which publish.sh pushes after it published
+#    a release: the candidate's tree with this file as the only workflow, plus
+#    .vommet/ci/web-build-of = the ci/windows-testing commit; or a trial
+#    ci/xplat-web*-release): finds the nether.codes release whose commit is
+#    .vommet/ci/source-sha, takes the successful build run of that commit and its
+#    artifact (no rebuild: the bits that passed the checks), and publishes
+#      image  :<release tag> + :testing   (a testing-* pre-release)
+#             :<release tag> + :latest    (a stable release)
+#      Pages  branch "production" (web.vommet.app, public since 2026-10-21)
+#             for testing releases; skipped, with a notice, while
+#             CLOUDFLARE_PAGES_TOKEN is unset. Stable releases don't deploy.
+#    Then it checks what it published (content types incl. application/wasm,
+#    COOP/COEP, the wasm bytes). Trial releases never move :testing/:latest and
+#    deploy to Pages branch "trial".
+#
+# The image is nginx on :8080; VOMMET_DEFAULT_HOMESERVER sets the login page's
+# homeserver at runtime (see .vommet/web/40-vommet-config.sh). Neither stage
+# gates a cut or a release.
+name: vommet-web
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/windows-web-release', 'ci/xplat-web*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-web-${{ github.ref }}
+  # A newer candidate replaces an older one; a release run always finishes.
+  cancel-in-progress: ${{ !endsWith(github.ref_name, '-release') }}
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  # Web compile only: dart2wasm before Dart 3.12 crashes on this app
+  # (dart-lang/sdk 62319). Drop when FLUTTER_VERSION reaches Dart 3.12.
+  FLUTTER_WEB_VERSION: 3.47.7
+  PROJECT_PATH: commet
+  VODOZEMAC_REF: 0.5.0
+  FRB_CODEGEN: 2.11.1
+  IMAGE: ghcr.io/dark-collective/vommet-web
+  PAGES_PROJECT: vommet-web
+  # web.vommet.app follows testing releases (operator 2026-10-21).
+  PAGES_BRANCH: production
+  WRANGLER: wrangler@4.151.2
+
+jobs:
+  web:
+    if: github.repository == 'dark-collective/vommet' && !endsWith(github.ref_name, '-release')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install failure-annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/ci_run" <<'SH'
+          #!/usr/bin/env bash
+          set -o pipefail
+          log=$(mktemp)
+          "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            msg=$(grep -E '^(error|Error|ERROR)|error:|Error:|FAILED|Failed|^Target .* failed' "$log" | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log")
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=$1 failed::$msg"
+          fi
+          exit "$status"
+          SH
+          chmod +x "$HOME/bin/ci_run"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # Fork invariant: no new dependency on Commet's servers.
+      - name: No unlisted Commet hosts
+        run: ci_run .vommet/check-commet-hosts.sh
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Web prep cache key
+        id: prep
+        run: |
+          lk=$(awk '/^  livekit_client:$/{f=1} f&&/ref:/{print $2; exit}' $PROJECT_PATH/pubspec.yaml)
+          echo "key=web-prep-vz$VODOZEMAC_REF-frb$FRB_CODEGEN-lk$lk-${{ hashFiles('.vommet/web/prepare.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore web prep
+        id: prepcache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            commet/assets/vodozemac/vodozemac_bindings_dart*
+            commet/web/e2ee.worker.dart.js
+          key: ${{ steps.prep.outputs.key }}
+
+      - name: Rust toolchain for wasm
+        if: steps.prepcache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          command -v wasm-pack >/dev/null || curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Prepare web (vodozemac wasm + E2EE worker)
+        if: steps.prepcache.outputs.cache-hit != 'true'
+        run: ci_run .vommet/web/prepare.sh
+
+      - name: Code generation
+        run: |
+          flutter config --no-analytics
+          cd $PROJECT_PATH
+          flutter --version
+          ci_run timeout 900 flutter pub get
+          ci_run timeout 1200 dart run scripts/codegen.dart
+
+      - name: Setup Flutter for the web compile
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_WEB_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Resolve packages for the web compile
+        run: |
+          flutter config --no-analytics
+          flutter --version
+          cd $PROJECT_PATH && ci_run timeout 900 flutter pub get
+
+      # Fallback fonts from our own origin (never fonts.gstatic.com at runtime).
+      - name: Bundle fallback fonts
+        run: |
+          flutter precache --web
+          ci_run .vommet/web/fonts.sh
+
+      - name: Version label
+        id: label
+        run: |
+          vt=$(bash .vommet/ci/version-tag.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" 2>/dev/null || true)
+          vt=${vt:-$GITHUB_REF_NAME.$GITHUB_RUN_NUMBER}
+          name=${vt%% (*}; name=${name//\//-}
+          src=$(cat .vommet/ci/source-sha 2>/dev/null || true)
+          case "$GITHUB_REF_NAME" in
+            ci/windows-testing) moving=testing ;;
+            *) moving=${GITHUB_REF_NAME//\//-} ;;
+          esac
+          echo "label=$vt" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "moving=$moving" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_SHA=${src:-$GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "label '$vt', image tags '$name' + '$moving'"
+
+      # Same defines as upstream's build_release.dart --platform web, called
+      # directly like the Linux build (the script wants an x.y.z version tag).
+      - name: Build web
+        env:
+          VT: ${{ steps.label.outputs.label }}
+        run: |
+          cd $PROJECT_PATH
+          ci_run flutter build web --release --wasm --no-web-resources-cdn \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=web \
+            --dart-define GIT_HASH=$SOURCE_SHA \
+            --dart-define "VERSION_TAG=$VT" \
+            --dart-define ENABLE_GOOGLE_SERVICES=false \
+            --dart-define BUILD_DATE=$(date +%s000) \
+            --source-maps
+          # Flutter web loads every manifest font before the first frame:
+          # drop the ones the app never uses (tiamat's 24 MB emoji font).
+          ci_run python3 ../.vommet/web/trim-fonts.py build/web
+          du -sh build/web
+          # Download sizes (gzip -9, as the image serves them).
+          for f in main.dart.wasm main.dart.mjs main.dart.js canvaskit/canvaskit.wasm canvaskit/canvaskit.js canvaskit/skwasm.wasm canvaskit/skwasm.js canvaskit/skwasm_heavy.wasm; do
+            [ -f build/web/$f ] && printf '%-30s %9d raw %9d gz\n' "$f" "$(stat -c %s build/web/$f)" "$(gzip -9c build/web/$f | wc -c)"
+          done
+          du -sh build/web/fonts/fallback
+
+      # Loads the built app in the runner's Chrome and fails on any uncaught
+      # exception during startup (dart:io and other native-only code throws
+      # only at runtime on web). Screenshot goes into the smoke artifact.
+      - name: Smoke test in headless Chrome
+        run: |
+          set -euo pipefail
+          python3 .vommet/web/serve.py $PROJECT_PATH/build/web 8765 &
+          google-chrome --headless=new --no-sandbox --remote-debugging-port=9333 \
+            --user-data-dir="$RUNNER_TEMP/chrome" --window-size=1280,800 about:blank >/dev/null 2>&1 &
+          for i in $(seq 1 30); do
+            ws=$(curl -s http://127.0.0.1:9333/json/version | jq -r .webSocketDebuggerUrl) && [ -n "$ws" ] && break
+            sleep 1
+          done
+          mkdir -p smoke
+          google-chrome --version
+          rc=0
+          # First-load budgets (MB, uncompressed, empty cache, login page):
+          # measured 2026-10-19 + 10% (wasm 21.9, JS 24.8). Raise deliberately.
+          SMOKE_BUDGET_MB=24 ci_run node .vommet/web/smoke.mjs "$ws" http://127.0.0.1:8765/ smoke/login-wasm.png 75 wasm | tee smoke/console-wasm.txt || rc=1
+          SMOKE_BUDGET_MB=27 ci_run node .vommet/web/smoke.mjs "$ws" http://127.0.0.1:8765/ smoke/login-js.png 75 js | tee smoke/console-js.txt || rc=1
+          exit $rc
+
+      - name: Upload smoke result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-web-smoke-${{ steps.label.outputs.name }}
+          path: smoke/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # The static build exactly as built (no .gz, source maps kept), with what
+      # the release stage checks it against.
+      - name: Build artifact
+        env:
+          VT: ${{ steps.label.outputs.label }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          tar -C $PROJECT_PATH/build -czf artifact/vommet-web.tar.gz web
+          # Shell-quoted (%q): the label has spaces and parentheses
+          # ("testing-2026-10-19g (...)") and the release stage sources this.
+          printf 'LABEL=%q\nSOURCE_SHA=%q\n' "$VT" "$SOURCE_SHA" > artifact/build.env
+          # Self-test: it must source back to exactly what was written.
+          EXPECT_SHA=$SOURCE_SHA
+          ( . artifact/build.env && [ "$LABEL" = "$VT" ] && [ "$SOURCE_SHA" = "$EXPECT_SHA" ] ) ||
+            { echo "::error::artifact/build.env does not source back to the label and source sha"; exit 1; }
+          (cd artifact && sha256sum vommet-web.tar.gz > vommet-web.tar.gz.sha256)
+          ls -la artifact; cat artifact/build.env
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-web-build
+          path: artifact/
+          retention-days: 14
+
+      - name: Build and check image
+        run: |
+          set -euo pipefail
+          docker build -f .vommet/web/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/dark-collective/vommet \
+            --label org.opencontainers.image.description="Vommet web app (Flutter web, nginx on :8080)" \
+            --label org.opencontainers.image.licenses=AGPL-3.0 \
+            --label org.opencontainers.image.version="${{ steps.label.outputs.name }}" \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            -t vommet-web:check .
+          ci_run .vommet/web/check-image.sh vommet-web:check $PROJECT_PATH/build/web
+
+      # Trial branches only; a candidate's image is published by the release stage.
+      - name: Push trial image
+        if: startsWith(github.ref_name, 'ci/xplat-web')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          name="${{ steps.label.outputs.name }}"; moving="${{ steps.label.outputs.moving }}"
+          for t in "$name" "$moving"; do docker tag vommet-web:check "$IMAGE:$t"; docker push "$IMAGE:$t"; done
+          echo "::notice title=Image::$IMAGE:$name (also :$moving)"
+
+  release:
+    if: github.repository == 'dark-collective/vommet' && endsWith(github.ref_name, '-release')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Release ref -> nether.codes release + the build run that made it.
+      - name: Release and build
+        id: r
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          src=$(cat .vommet/ci/source-sha); of=$(cat .vommet/ci/web-build-of)
+          branch=$(cat .vommet/ci/web-build-branch 2>/dev/null || echo ci/windows-testing)
+          [ -n "$src" ] && [ -n "$of" ] || { echo "::error::source-sha / web-build-of missing"; exit 1; }
+          rels=""
+          for try in 1 2 3; do
+            rels=$(curl -fsS --max-time 30 "https://nether.codes/api/v1/repos/nether/vommet/releases?limit=50") && break
+            rels=""; sleep 15
+          done
+          [ -n "$rels" ] || { echo "::error::nether.codes release list unreachable"; exit 1; }
+          rel=$(jq -c --arg s "$src" '[.[]|select(.target_commitish==$s and (.draft|not))][0] // empty' <<<"$rels")
+          case "$GITHUB_REF_NAME" in
+            ci/windows-web-release)
+              [ -n "$rel" ] || { echo "::error::no published nether.codes release for ${src:0:10}"; exit 1; }
+              tag=$(jq -r .tag_name <<<"$rel")
+              if [ "$(jq -r .prerelease <<<"$rel")" = true ]; then moving=testing; pages=$PAGES_BRANCH
+              else moving=latest; pages=""; fi
+              trial=false ;;
+            # Trials never move :testing/:latest, whatever their source is.
+            *) tag=${GITHUB_REF_NAME//\//-}.$GITHUB_RUN_NUMBER; moving=""; pages=trial; trial=true ;;
+          esac
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/vommet-web.yml/runs?branch=$branch&status=success&per_page=50" \
+            --jq "[.workflow_runs[]|select(.head_commit.message|contains(\"$of\"))][0].id // empty")
+          [ -n "$run" ] || { echo "::error::no successful vommet-web build on $branch for ${of:0:10}"; exit 1; }
+          echo "release '$tag' (moving '${moving:-none}', Pages '${pages:-none}'), source ${src:0:10}, build run $run"
+          { echo "tag=$tag"; echo "moving=$moving"; echo "pages=$pages"; echo "trial=$trial"
+            echo "run=$run"; echo "src=$src"; } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch and verify the build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.r.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ steps.r.outputs.run }}" -R "$GITHUB_REPOSITORY" -n vommet-web-build -D artifact
+          (cd artifact && sha256sum -c vommet-web.tar.gz.sha256)
+          # Builds before the %q fix wrote the label unquoted (not sourceable):
+          # read those line by line instead.
+          if bash -n artifact/build.env 2>/dev/null; then
+            . artifact/build.env
+          else
+            LABEL=$(sed -n 's/^LABEL=//p' artifact/build.env)
+            SOURCE_SHA=$(sed -n 's/^SOURCE_SHA=//p' artifact/build.env)
+          fi
+          [ "$SOURCE_SHA" = "${{ steps.r.outputs.src }}" ] || { echo "::error::build is of $SOURCE_SHA, release of ${{ steps.r.outputs.src }}"; exit 1; }
+          # The app shows its build label; for a release it must be the release.
+          if [ "${{ steps.r.outputs.trial }}" = false ] && [ "${LABEL%% (*}" != "$TAG" ]; then
+            echo "::error::build labelled '$LABEL', release is '$TAG'"; exit 1
+          fi
+          mkdir -p $PROJECT_PATH/build && tar -C $PROJECT_PATH/build -xzf artifact/vommet-web.tar.gz
+          echo "LABEL=$LABEL" >> "$GITHUB_ENV"
+
+      - name: Image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.r.outputs.tag }}
+          MOVING: ${{ steps.r.outputs.moving }}
+          SRC: ${{ steps.r.outputs.src }}
+        run: |
+          set -euo pipefail
+          docker build -f .vommet/web/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/dark-collective/vommet \
+            --label org.opencontainers.image.url=https://vommet.app \
+            --label org.opencontainers.image.description="Vommet web app (Flutter web, nginx on :8080)" \
+            --label org.opencontainers.image.licenses=AGPL-3.0 \
+            --label org.opencontainers.image.version="$TAG" \
+            --label org.opencontainers.image.revision="$SRC" \
+            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "$IMAGE:$TAG" .
+          .vommet/web/check-image.sh "$IMAGE:$TAG" $PROJECT_PATH/build/web
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$TAG"
+          if [ -n "$MOVING" ]; then docker tag "$IMAGE:$TAG" "$IMAGE:$MOVING"; docker push "$IMAGE:$MOVING"; fi
+          # What a self-hoster pulls must be what was checked.
+          docker rmi "$IMAGE:$TAG" >/dev/null; [ -z "$MOVING" ] || docker rmi "$IMAGE:$MOVING" >/dev/null
+          docker pull -q "$IMAGE:${MOVING:-$TAG}" >/dev/null
+          .vommet/web/check-image.sh "$IMAGE:${MOVING:-$TAG}" $PROJECT_PATH/build/web
+          echo "::notice title=Image::$IMAGE:$TAG${MOVING:+ (also :$MOVING)}"
+
+      # The image's files minus what Pages can't or shouldn't serve, the
+      # homeserver baked in the way 40-vommet-config.sh sets it, and the
+      # headers nginx sends (pages_headers -> _headers).
+      - name: Pages tree
+        if: steps.r.outputs.pages != ''
+        run: |
+          set -euo pipefail
+          cp -a $PROJECT_PATH/build/web pages-out
+          find pages-out \( -name '*.map' -o -name '*.symbols' -o -name '*.deps' -o -name '*.gz' \) -delete
+          printf '{\n    "default_homeserver": "%s"\n}\n' nether.im > pages-out/assets/assets/config/global_config.json
+          cp .vommet/web/pages_headers pages-out/_headers
+          [ ! -e pages-out/404.html ] || { echo "::error::404.html would turn off Pages' SPA fallback"; exit 1; }
+          big=$(find pages-out -type f -size +25M)
+          [ -z "$big" ] || { echo "::error::over Pages' 25 MiB per-file limit: $big"; exit 1; }
+          n=$(find pages-out -type f | wc -l); [ "$n" -le 20000 ] || { echo "::error::$n files, Pages allows 20000"; exit 1; }
+          echo "$n files, $(du -sh pages-out | cut -f1)"
+
+      - name: Pages deploy and check
+        if: steps.r.outputs.pages != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BRANCH: ${{ steps.r.outputs.pages }}
+          TAG: ${{ steps.r.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice title=Pages::CLOUDFLARE_PAGES_TOKEN / CLOUDFLARE_ACCOUNT_ID not set, deploy of $TAG skipped"; exit 0
+          fi
+          npx -y "$WRANGLER" pages deploy pages-out --project-name "$PAGES_PROJECT" --branch "$BRANCH" \
+            --commit-hash "${{ steps.r.outputs.src }}" --commit-message "$TAG" --commit-dirty=true 2>&1 | tee deploy.log
+          url=$(grep -o "https://[a-z0-9]*\.$PAGES_PROJECT\.pages\.dev" deploy.log | tail -1)
+          [ -n "$url" ] || { echo "::error::no deployment URL in wrangler's output"; exit 1; }
+          # The deployment itself, then the branch alias people use (it may
+          # take a moment to switch over).
+          .vommet/web/check-site.sh "$url" pages-out nether.im
+          alias="https://$BRANCH.$PAGES_PROJECT.pages.dev"
+          [ "$BRANCH" != production ] || alias="https://$PAGES_PROJECT.pages.dev"
+          want=$(sha256sum < pages-out/main.dart.js | cut -d' ' -f1)
+          for i in $(seq 1 18); do
+            [ "$(curl -fsS "$alias/main.dart.js" 2>/dev/null | sha256sum | cut -d' ' -f1)" = "$want" ] && break; sleep 10
+          done
+          .vommet/web/check-site.sh "$alias" pages-out nether.im
+          echo "::notice title=Pages::$TAG on $alias ($url)"
