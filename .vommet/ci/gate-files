@@ -1,0 +1,4 @@
+lib/client/matrix/timeline_events/matrix_edit_text.dart
+lib/ui/organisms/chat/chat.dart
+lib/client/matrix/components/command_component/matrix_command_component.dart
+unit_test/edit_keeps_links_test.dart
