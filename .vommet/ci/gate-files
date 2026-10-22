@@ -1,0 +1,6 @@
+lib/ui/atoms/selected_segment_style.dart
+unit_test/selected_segment_style_test.dart
+lib/ui/pages/settings/categories/app/layout_settings.dart
+lib/ui/pages/settings/categories/app/appearance_settings_page.dart
+lib/ui/pages/settings/categories/app/title_bar_settings.dart
+lib/ui/pages/settings/categories/app/redaction_settings_page.dart
