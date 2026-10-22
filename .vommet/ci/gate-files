@@ -1,0 +1,3 @@
+lib/telemetry/room_key_share_telemetry.dart
+unit_test/room_key_share_telemetry_test.dart
+lib/client/matrix/matrix_client.dart
