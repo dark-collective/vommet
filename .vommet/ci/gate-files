@@ -1,0 +1,6 @@
+lib/client/components/push_notification/reaction_notification.dart
+lib/client/matrix/matrix_room.dart
+lib/config/preferences.dart
+lib/ui/pages/settings/categories/app/notification_settings/notification_settings_page.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+unit_test/reaction_notification_test.dart
