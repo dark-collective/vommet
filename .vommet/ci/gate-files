@@ -1,0 +1,5 @@
+lib/client/components/hidden_messages/hidden_messages.dart
+lib/ui/molecules/timeline_events/timeline_view_entry.dart
+lib/ui/organisms/message_selection/delete_for_dialog.dart
+lib/ui/organisms/message_selection/message_selection.dart
+unit_test/hidden_messages_test.dart
