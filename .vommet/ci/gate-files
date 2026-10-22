@@ -1,0 +1,17 @@
+lib/client/components/component_registry.dart
+lib/client/matrix/components/encrypted_search_index/matrix_encrypted_search_index_component.dart
+lib/client/matrix/components/encrypted_search_index/search_index_backend.dart
+lib/client/matrix/components/encrypted_search_index/search_index_backend_io.dart
+lib/client/matrix/components/encrypted_search_index/search_index_backend_stub.dart
+lib/client/matrix/components/encrypted_search_index/search_index_entry.dart
+lib/client/matrix/components/encrypted_search_index/search_index_store.dart
+lib/client/matrix/components/encrypted_search_index/search_index_types.dart
+lib/client/matrix/components/encrypted_search_index/search_index_worker.dart
+lib/client/matrix/components/event_search/matrix_event_search_component.dart
+lib/client/matrix/matrix_client.dart
+lib/config/encrypted_search_index_setting.dart
+lib/ui/pages/settings/categories/app/encrypted_search_index_panel.dart
+lib/ui/pages/settings/categories/app/privacy_settings_page.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+lib/utils/clear_cache.dart
+unit_test/encrypted_search_index_test.dart
