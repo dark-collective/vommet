@@ -1,0 +1,4 @@
+lib/ui/atoms/rail_pill.dart
+lib/ui/organisms/new_home/new_home_shortcuts.dart
+lib/ui/organisms/side_navigation_bar/side_navigation_bar.dart
+unit_test/new_home_rail_home_test.dart
