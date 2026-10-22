@@ -1,0 +1,470 @@
+import 'dart:math';
+
+import 'package:commet/client/attachment.dart';
+import 'package:commet/ui/molecules/voice_message/voice_message_player.dart';
+import 'package:commet/ui/molecules/voice_message/voice_message_transcript.dart';
+import 'package:commet/utils/voice_transcription.dart';
+import 'package:commet/config/build_config.dart';
+import 'package:commet/ui/atoms/auto_download_overlay.dart';
+import 'package:commet/ui/atoms/lightbox.dart';
+import 'package:commet/ui/atoms/media_spoiler_cover.dart';
+import 'package:commet/ui/molecules/audio_player/audio_player.dart';
+import 'package:commet/ui/molecules/video_player/gif_video_player.dart';
+import 'package:commet/ui/molecules/video_player/video_player.dart';
+import 'package:commet/ui/molecules/video_player/video_player_controller.dart';
+import 'package:commet/utils/background_tasks/background_task_manager.dart';
+import 'package:commet/utils/download_utils.dart';
+import 'package:commet/utils/gif_video.dart';
+import 'package:commet/utils/media_spoiler.dart';
+import 'package:commet/utils/mime.dart';
+import 'package:commet/utils/text_utils.dart';
+import 'package:commet/ui/atoms/redaction_scope.dart';
+import 'package:flutter/material.dart';
+import 'package:tiamat/tiamat.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+class MessageAttachment extends StatefulWidget {
+  const MessageAttachment(this.attachment,
+      {super.key,
+      this.ignorePointer = false,
+      this.constrainSize = true,
+      this.previewMedia = false});
+  final Attachment attachment;
+  final bool ignorePointer;
+  final bool previewMedia;
+  final bool constrainSize;
+  @override
+  State<MessageAttachment> createState() => _MessageAttachmentState();
+}
+
+class _MessageAttachmentState extends State<MessageAttachment> {
+  late Key videoPlayerKey;
+  bool isFullscreen = false;
+  var controller = VideoPlayerController();
+
+  /// Vommet: a still GIF (Autoplay GIFs off) the user tapped to play.
+  bool gifTapped = false;
+  @override
+  void initState() {
+    videoPlayerKey = GlobalKey();
+    super.initState();
+  }
+
+  /// Vommet: the picture's or video's spoiler (MSC4193), if it is one.
+  MediaSpoiler? get spoiler => switch (widget.attachment) {
+        FileAttachment a => a.spoiler,
+        _ => null,
+      };
+
+  /// Vommet: [media] while revealed (with a "Hide" chip); while covered,
+  /// the cover in its place, sized by [sizer] (the media's own box, empty).
+  Widget spoilerGate(
+      {required Widget Function() media,
+      required Widget sizer,
+      ImageProvider? preview,
+      bool isVideo = false,
+      double chipTop = 8}) {
+    final spoiler = this.spoiler;
+    if (spoiler == null) return media();
+    return MediaSpoilerBuilder(
+      spoiler: spoiler,
+      builder: (context, hidden) {
+        if (hidden) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Stack(children: [
+              sizer,
+              Positioned.fill(
+                  child: IgnorePointer(
+                ignoring: widget.ignorePointer,
+                child: MediaSpoilerCover(
+                    spoiler: spoiler,
+                    blurhash: spoilerBlurhashOf(preview),
+                    isVideo: isVideo),
+              )),
+            ]),
+          );
+        }
+        return Stack(children: [
+          media(),
+          Positioned(
+              right: 8,
+              top: chipTop,
+              child: MediaSpoilerHideChip(spoiler: spoiler)),
+        ]);
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.previewMedia) {
+      if (widget.attachment is ImageAttachment) return buildImage();
+      if (widget.attachment is VideoAttachment) {
+        if (BuildConfig.WEB) {
+          return buildFile(Icons.video_file, widget.attachment.name, null);
+        }
+        return buildVideo();
+      }
+    }
+
+    final attachment = widget.attachment;
+    if (attachment is AudioAttachment && attachment.isVoice) {
+      if (VoiceTranscription.supported && !widget.ignorePointer) {
+        return TranscribableVoiceMessage(
+          file: attachment.file,
+          mimeType: attachment.mimeType,
+          duration: attachment.duration,
+          waveform: attachment.waveform,
+        );
+      }
+      return VoiceMessagePlayer(
+        file: attachment.file,
+        duration: attachment.duration,
+        waveform: attachment.waveform,
+      );
+    }
+
+    if (attachment is FileAttachment) {
+      if (Mime.isPlayableAudio(attachment.mimeType, name: attachment.name)) {
+        return buildAudio(attachment);
+      }
+
+      return buildFile(Mime.toIcon(attachment.mimeType), attachment.name,
+          attachment.fileSize);
+    }
+
+    return const Placeholder();
+  }
+
+  Widget buildImage() {
+    assert(widget.attachment is ImageAttachment);
+    var attachment = widget.attachment as ImageAttachment;
+    // Vommet: a spoiler's cover takes the picture's place and size; the
+    // picture is not loaded until revealed.
+    return spoilerGate(
+      media: () => buildImageContent(attachment),
+      preview: attachment.image,
+      sizer: ConstrainedBox(
+        constraints: const BoxConstraints(
+            maxHeight: 200, minHeight: 40, maxWidth: 500, minWidth: 40),
+        child: FittedBox(
+          fit: BoxFit.fitWidth,
+          child: SizedBox(
+              width: attachment.width ?? 500, height: attachment.height ?? 500),
+        ),
+      ),
+    );
+  }
+
+  Widget buildImageContent(ImageAttachment attachment) {
+    // Vommet: with Autoplay GIFs off a GIF holds its first frame (Image
+    // pauses under a disabled TickerMode) until tapped.
+    final isGif = attachment.mimeType == "image/gif";
+    final animate = !isGif || gifTapped || shouldAutoplayGifs(context);
+
+    return IgnorePointer(
+      ignoring: widget.ignorePointer,
+      child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Material(
+              color: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: 200, minHeight: 40, maxWidth: 500, minWidth: 40),
+                child: InkWell(
+                  onTap: animate
+                      ? fullscreenAttachment
+                      : () => setState(() => gifTapped = true),
+                  child: Stack(
+                    children: [
+                      TickerMode(
+                        enabled: animate,
+                        child: FittedBox(
+                          fit: BoxFit.fitWidth,
+                          child: SizedBox(
+                            width: attachment.width ?? 500,
+                            height: attachment.height ?? 500,
+                            child: RedactedImage(
+                                child: Image(
+                              image: attachment.image,
+                              filterQuality: FilterQuality.medium,
+                              // if we know the height, its safe to fill as it wont appear stretched
+                              fit: attachment.width != null &&
+                                      attachment.height != null
+                                  ? BoxFit.fill
+                                  : BoxFit.fitWidth,
+                            )),
+                          ),
+                        ),
+                      ),
+                      if (!animate)
+                        Center(
+                          child: IgnorePointer(
+                            child: Opacity(
+                              opacity: 0.9,
+                              child: tiamat.CircleButton(
+                                  radius: 24, icon: Icons.gif_rounded),
+                            ),
+                          ),
+                        ),
+                      // Vommet: tap-to-load when auto-download held it back.
+                      Positioned.fill(
+                          child: AutoDownloadOverlay(
+                              image: attachment.image,
+                              fileSize: attachment.fileSize)),
+                    ],
+                  ),
+                ),
+              ))),
+    );
+  }
+
+  Widget buildVideo() {
+    var attachment = widget.attachment as VideoAttachment;
+    // Vommet: a spoilered video shows no thumbnail and doesn't play until
+    // revealed.
+    final double gifWidth = min(max(attachment.aspectRatio * 200, 40), 500);
+    return spoilerGate(
+      media: () => buildVideoContent(attachment),
+      preview: attachment.thumbnail,
+      isVideo: true,
+      // below the video's file name header
+      chipTop: !attachment.isGif &&
+              attachment.name != null &&
+              attachment.fileSize != null
+          ? 38
+          : 8,
+      sizer: SizedBox(
+        height: 200,
+        width: attachment.isGif
+            ? gifWidth
+            : max(
+                widget.constrainSize ? attachment.aspectRatio * 200 : 200, 200),
+      ),
+    );
+  }
+
+  Widget buildVideoContent(VideoAttachment attachment) {
+    if (attachment.isGif) return buildGifVideo(attachment);
+    bool showInfo =
+        widget.attachment.name != null && attachment.fileSize != null;
+
+    double height = 200;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        height: widget.constrainSize ? height + (showInfo ? 30 : 0) : null,
+        width: max(
+            widget.constrainSize ? attachment.aspectRatio * height : 200, 200),
+        child: Panel(
+            mainAxisSize: MainAxisSize.min,
+            header: showInfo
+                ? "${attachment.name} ${attachment.fileSize != null ? "- ${TextUtils.readableFileSize(attachment.fileSize!)}" : ""}"
+                : null,
+            mode: TileType.surfaceContainerLow,
+            padding: 0,
+            child: SizedBox(
+                height: height,
+                width: 500,
+                child: AspectRatio(
+                    aspectRatio: attachment.aspectRatio,
+                    child: isFullscreen
+                        ? null
+                        : Stack(children: [
+                            RedactedImage(
+                                child: VideoPlayer(
+                              attachment.file,
+                              streamUrl: attachment.streamUrl,
+                              thumbnail: attachment.thumbnail,
+                              fileName: attachment.name,
+                              doThumbnail: true,
+                              canGoFullscreen: true,
+                              onFullscreen: fullscreenVideo,
+                              controller: controller,
+                              key: videoPlayerKey,
+                            )),
+                            // Vommet: tap-to-load the preview picture.
+                            Positioned.fill(
+                                child: AutoDownloadOverlay(
+                                    image: attachment.thumbnail,
+                                    fileSize: attachment.fileSize,
+                                    duration: attachment.duration)),
+                          ])))),
+      ),
+    );
+  }
+
+  /// Vommet: a GIF sent as a video, shown like a picture: no file name
+  /// header, muted, looping, no controls.
+  Widget buildGifVideo(VideoAttachment attachment) {
+    const double height = 200;
+    return IgnorePointer(
+      ignoring: widget.ignorePointer,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          height: widget.constrainSize ? height : null,
+          width: widget.constrainSize
+              ? min(max(attachment.aspectRatio * height, 40), 500)
+              : null,
+          child: isFullscreen
+              ? null
+              : Stack(fit: StackFit.expand, children: [
+                  RedactedImage(
+                      child: GifVideoPlayer(
+                    attachment.file,
+                    thumbnail: attachment.thumbnail,
+                    autoplay: shouldAutoplayGifs(context),
+                    onOpen: fullscreenGifVideo,
+                  )),
+                  // Vommet: tap-to-load the preview picture.
+                  Positioned.fill(
+                      child: AutoDownloadOverlay(
+                          image: attachment.thumbnail,
+                          fileSize: attachment.fileSize)),
+                ]),
+        ),
+      ),
+    );
+  }
+
+  /// Vommet: the inline GIF player has no [controller] to hand over, so
+  /// the viewer gets its own player.
+  void fullscreenGifVideo() {
+    final attachment = widget.attachment as VideoAttachment;
+    setState(() => isFullscreen = true);
+    Lightbox.show(context,
+            video: attachment.file,
+            aspectRatio: attachment.aspectRatio,
+            thumbnail: attachment.thumbnail)
+        .then((_) {
+      if (mounted) setState(() => isFullscreen = false);
+    });
+  }
+
+  void fullscreenAttachment() {
+    // Vommet: opening a covered spoiler from its file card (the eye
+    // button) is the explicit tap that reveals it.
+    final spoiler = this.spoiler;
+    if (spoiler != null) MediaSpoilerReveal.reveal(spoiler.key);
+
+    if (widget.attachment is ImageAttachment) {
+      final attachment = widget.attachment as ImageAttachment;
+      Lightbox.show(context,
+          image: attachment.image, fileName: attachment.name);
+    }
+
+    if (widget.attachment case VideoAttachment video) {
+      video.isGif ? fullscreenGifVideo() : fullscreenVideo();
+    }
+  }
+
+  void fullscreenVideo() {
+    var attachment = (widget.attachment as VideoAttachment);
+    setState(() {
+      isFullscreen = true;
+    });
+    Lightbox.show(context,
+            video: attachment.file,
+            aspectRatio: attachment.aspectRatio,
+            thumbnail: attachment.thumbnail,
+            videoController: controller,
+            key: videoPlayerKey)
+        .then((value) {
+      setState(() {
+        isFullscreen = false;
+      });
+    });
+  }
+
+  Widget buildFile(IconData icon, String? fileName, int? fileSize) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Icon(icon),
+                  ),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        tiamat.Text.labelEmphasised(
+                          fileName ?? "unnamed",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (fileSize != null)
+                          tiamat.Text.labelLow(
+                              TextUtils.readableFileSize(fileSize))
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (widget.attachment is ImageAttachment ||
+                widget.attachment is VideoAttachment)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+                child: tiamat.IconButton(
+                  size: 20,
+                  icon: Icons.visibility,
+                  onPressed: fullscreenAttachment,
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 4, 0),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: tiamat.IconButton(
+                    size: 20,
+                    icon: Icons.download,
+                    onPressed: () async {
+                      if (widget.attachment is FileAttachment) {
+                        downloadAttachment(widget.attachment as FileAttachment);
+                      }
+                    },
+                  ),
+                ),
+              )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> downloadAttachment(FileAttachment attachment) async {
+    return DownloadUtils.downloadAttachment(attachment);
+  }
+
+  Future<BackgroundTaskStatus> downloadTask(
+      FileAttachment attachment, String path) async {
+    await attachment.file.save(path);
+
+    return BackgroundTaskStatus.completed;
+  }
+
+  Widget buildAudio(FileAttachment attachment) {
+    return AudioPlayer(
+      file: attachment.file,
+      fileName: attachment.name,
+      fileSize: attachment.fileSize,
+    );
+  }
+}
