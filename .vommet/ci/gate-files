@@ -1,0 +1,4 @@
+lib/ui/organisms/chat/prefixed_sends.dart
+lib/ui/organisms/chat/chat.dart
+lib/ui/organisms/chat/chat_view.dart
+unit_test/prefixed_sends_test.dart
