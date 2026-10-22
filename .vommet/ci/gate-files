@@ -1,0 +1,16 @@
+integration_test/extensions/common_flows.dart
+lib/config/experiment_entries.dart
+lib/config/preferences.dart
+lib/config/room_encryption_default.dart
+lib/ui/organisms/new_home/new_home_cards.dart
+lib/ui/organisms/new_home/new_home_shortcuts.dart
+lib/ui/organisms/side_navigation_bar/side_navigation_bar.dart
+lib/ui/pages/settings/categories/app/appearance_settings_page.dart
+lib/ui/pages/settings/categories/app/layout_settings.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+lib/ui/pages/settings/search/settings_search_strings.dart
+lib/ui/pages/setup/onboarding/choice_cards.dart
+lib/ui/pages/setup/onboarding/layout_preview.dart
+lib/ui/pages/setup/onboarding/onboarding_setup.dart
+unit_test/new_install_defaults_test.dart
+unit_test/onboarding_test.dart
