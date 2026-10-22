@@ -1,0 +1,8 @@
+lib/ui/molecules/user_list.dart
+lib/ui/organisms/room_members_list/dm_panel.dart
+lib/ui/organisms/room_members_list/index_shared_counts.dart
+lib/ui/organisms/room_members_list/room_attachments.dart
+lib/ui/organisms/room_members_list/room_members_list.dart
+lib/ui/organisms/room_side_panel/room_side_panel.dart
+unit_test/index_shared_counts_test.dart
+unit_test/room_attachment_filters_test.dart
