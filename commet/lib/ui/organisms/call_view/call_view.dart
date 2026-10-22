@@ -1,0 +1,506 @@
+import 'dart:async';
+import 'package:commet/client/components/voip/voip_session.dart';
+import 'package:commet/client/components/voip/voip_stream.dart';
+import 'package:commet/client/room.dart';
+import 'package:commet/config/fold_layout.dart';
+import 'package:commet/config/layout_config.dart';
+import 'package:commet/main.dart';
+import 'package:commet/ui/layout/bento.dart';
+import 'package:commet/ui/molecules/talk_button.dart';
+import 'package:commet/ui/navigation/navigation_utils.dart';
+import 'package:commet/ui/organisms/call_view/voip_fullscreen_stream_view.dart';
+import 'package:commet/ui/organisms/call_view/voip_stream_view.dart';
+import 'package:commet/ui/organisms/call_view/vommet_call_view_streams.dart';
+import 'package:commet/utils/animation/ring_shaker.dart';
+import 'package:commet/utils/animation/ripple.dart';
+import 'package:flutter/material.dart';
+import 'package:tiamat/atoms/avatar.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+class CallView extends StatefulWidget {
+  const CallView(
+    this.currentSession, {
+    this.setMicrophoneMute,
+    this.pickScreenshareSource,
+    this.stopScreenshare,
+    this.pickCamera,
+    this.disableCamera,
+    this.hangUp,
+    this.declineCall,
+    this.acceptCall,
+    super.key,
+  });
+  final VoipSession currentSession;
+
+  static const Duration volumeAnimationDuration = Duration(milliseconds: 500);
+
+  final Future<void> Function(bool)? setMicrophoneMute;
+  final Future<void> Function()? pickScreenshareSource;
+  final Future<void> Function()? stopScreenshare;
+  final Future<void> Function()? pickCamera;
+  final Future<void> Function()? disableCamera;
+  final Future<void> Function()? hangUp;
+  final Future<void> Function()? declineCall;
+  final Future<void> Function()? acceptCall;
+
+  @override
+  State<CallView> createState() => _CallViewState();
+}
+
+class _CallViewState extends State<CallView> {
+  final _streamsKey = GlobalKey();
+  bool _muteBusy = false;
+
+  Timer? statTimer;
+  StreamSubscription? sub;
+  bool isMouseHovering = false;
+  VoipStream? mainStream;
+  late Room room;
+
+  // Vommet: who and what the focused stream was, kept while it is gone, so
+  // focus follows a replacement (the sharer switched source: the old stream
+  // is removed, a new one arrives). The view used to keep showing the
+  // removed stream, which rendered nothing.
+  String? _followUserId;
+  VoipStreamType? _followType;
+
+  void _followMainStream() {
+    final streams = widget.currentSession.streams;
+    final main = mainStream;
+    if (main != null) {
+      if (streams.contains(main)) return;
+      _followUserId = main.streamUserId;
+      _followType = main.type;
+      mainStream = null;
+    }
+    if (_followUserId == null) return;
+    for (final s in streams) {
+      if (s.streamUserId == _followUserId && s.type == _followType) {
+        mainStream = s;
+        _followUserId = null;
+        _followType = null;
+        return;
+      }
+    }
+  }
+
+  void _setMainStream(VoipStream? stream) {
+    mainStream = stream;
+    _followUserId = null;
+    _followType = null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    sub = widget.currentSession.onStateChanged.listen((event) {
+      setState(_followMainStream);
+    });
+
+    room = widget.currentSession.client.getRoom(widget.currentSession.roomId)!;
+    statTimer = Timer.periodic(const Duration(milliseconds: 200), timer);
+  }
+
+  @override
+  void dispose() {
+    statTimer?.cancel();
+    sub?.cancel();
+    super.dispose();
+  }
+
+  void timer(Timer timer) async {
+    await widget.currentSession.updateStats();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return tiamat.Tile.lowest(
+      child: switch (widget.currentSession.state) {
+        VoipState.connected => callConnectedView(),
+        VoipState.outgoing => callOutgoingView(),
+        VoipState.connecting => callOutgoingView(),
+        VoipState.ended => callEndedView(),
+        VoipState.incoming => callIncomingView(),
+        _ => const Placeholder()
+      },
+    );
+  }
+
+  Widget callOutgoingView() {
+    return callButtons(
+      canHangUp: true,
+      child: Center(
+        child: RippleAnimation(
+          ripplesCount: 3,
+          scale: 1,
+          color: Theme.of(context).colorScheme.primary,
+          repeat: true,
+          child: Avatar.large(
+              image: room.avatar,
+              placeholderColor: room.defaultColor,
+              placeholderText: room.displayName),
+        ),
+      ),
+    );
+  }
+
+  Widget callButtons(
+      {bool canMute = false,
+      bool canTalk = false,
+      bool canScreenshare = false,
+      bool canHangUp = false,
+      bool canToggleCamera = false,
+      required Widget child}) {
+    Widget buttons(double buttonRadius) => callButtonRow(
+        buttonRadius: buttonRadius,
+        canMute: canMute,
+        canTalk: canTalk,
+        canScreenshare: canScreenshare,
+        canHangUp: canHangUp,
+        canToggleCamera: canToggleCamera);
+
+    // Keeps the streams (and their renderers) alive when the layout below
+    // changes with the device's posture.
+    final streams = KeyedSubtree(key: _streamsKey, child: child);
+
+    // Vommet: on a foldable standing half open like a laptop, the streams
+    // fill the part above the fold and the buttons sit, larger and always
+    // shown, on the part below it.
+    return HorizontalFoldBuilder(builder: (context, foldY) {
+      if (foldY != null) {
+        return Column(
+          children: [
+            SizedBox(height: foldY, child: streams),
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: buttons(32),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      final buttonRadius = MediaQuery.of(context).mobile ? 24.0 : 18.0;
+      return MouseRegion(
+        onEnter: (event) {
+          setState(() {
+            isMouseHovering = true;
+          });
+        },
+        onExit: (event) {
+          setState(() {
+            isMouseHovering = false;
+          });
+        },
+        child: Stack(
+          alignment: Alignment.bottomCenter,
+          children: [
+            streams,
+            AnimatedOpacity(
+              // Vommet: an iPad or an unfolded foldable in the desktop layout
+              // never hovers, so the buttons stay shown there.
+              opacity: MediaQuery.of(context).mobile ||
+                      MediaQuery.of(context).foldLayoutRules ||
+                      isMouseHovering
+                  ? 1
+                  : 0,
+              duration: const Duration(milliseconds: 200),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: buttons(buttonRadius),
+              ),
+            )
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget callButtonRow(
+      {required double buttonRadius,
+      required bool canMute,
+      required bool canTalk,
+      required bool canScreenshare,
+      required bool canHangUp,
+      required bool canToggleCamera}) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      alignment: WrapAlignment.center,
+      children: [
+        if (canScreenshare)
+          tiamat.CircleButton(
+              radius: buttonRadius,
+              icon: Icons.screen_share_outlined,
+              onPressed: widget.pickScreenshareSource),
+        if (widget.currentSession.isSharingScreen && canScreenshare)
+          tiamat.CircleButton(
+            radius: buttonRadius,
+            icon: Icons.stop_screen_share,
+            onPressed: widget.stopScreenshare,
+          ),
+        // Vommet: push to talk's hold-to-talk pill, in place of
+        // the mic button.
+        if (canTalk)
+          TalkButton(widget.currentSession, height: buttonRadius * 2),
+        if (canMute)
+          // Vommet: red while muted (the two icons looked alike in
+          // the same grey), and taps are ignored until a toggle has
+          // gone through, since the first unmute publishes the
+          // microphone and a second tap used to undo it.
+          Tooltip(
+            message:
+                widget.currentSession.isMicrophoneMuted ? "Unmute" : "Mute",
+            child: tiamat.CircleButton(
+              radius: buttonRadius,
+              icon: widget.currentSession.isMicrophoneMuted
+                  ? Icons.mic_off
+                  : Icons.mic,
+              color: widget.currentSession.isMicrophoneMuted
+                  ? Theme.of(context).colorScheme.error
+                  : null,
+              iconColor: widget.currentSession.isMicrophoneMuted
+                  ? Theme.of(context).colorScheme.onError
+                  : null,
+              onPressed: _muteBusy
+                  ? null
+                  : () async {
+                      setState(() => _muteBusy = true);
+                      try {
+                        await widget.setMicrophoneMute
+                            ?.call(!widget.currentSession.isMicrophoneMuted);
+                      } finally {
+                        if (mounted) {
+                          setState(() => _muteBusy = false);
+                        }
+                      }
+                    },
+            ),
+          ),
+        if (canToggleCamera)
+          tiamat.CircleButton(
+            radius: buttonRadius,
+            icon: widget.currentSession.isCameraEnabled
+                ? Icons.no_photography
+                : Icons.camera_alt_outlined,
+            onPressed: widget.currentSession.isCameraEnabled
+                ? widget.disableCamera
+                : widget.pickCamera,
+          ),
+        if (canHangUp)
+          tiamat.CircleButton(
+            color: Theme.of(context).colorScheme.errorContainer,
+            radius: buttonRadius,
+            icon: Icons.call_end,
+            onPressed: () async {
+              await widget.hangUp?.call();
+              setState(() {});
+            },
+          )
+      ],
+    );
+  }
+
+  Widget callConnectedView() {
+    // Vommet: with push to talk the talk pill replaces the mic button.
+    final pushToTalk = preferences.voipPushToTalk.value;
+    return callButtons(
+        canMute: !pushToTalk,
+        canTalk: pushToTalk,
+        canHangUp: true,
+        canScreenshare: true,
+        canToggleCamera: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            var ratio = constraints.maxWidth / constraints.maxHeight;
+
+            if (ratio > 1 && mainStream == null) {
+              return Row(children: generateLayout());
+            } else {
+              return Column(children: generateLayout());
+            }
+          },
+        ));
+  }
+
+  Iterable<VoipStream> get visibleStreams => widget.currentSession.streams
+      .where((i) => shouldShowAudioStream(i, widget.currentSession.streams))
+      .where((element) => element.type != VoipStreamType.screenshareAudio);
+
+  List<Widget> generateLayout() {
+    return [
+      if (mainStream != null)
+        Flexible(
+          flex: 100,
+          fit: FlexFit.tight,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(2.0),
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _setMainStream(null);
+                  });
+                },
+                child: vommetStreamTile(widget, mainStream!,
+                        focused: true,
+                        context: context,
+                        focus: (s) => setState(() => mainStream = s)) ??
+                    VoipStreamView(
+                      mainStream!,
+                      widget.currentSession,
+                      borderColor: Colors.white,
+                      onFullscreen: () {
+                        if (vommetOpenFullscreen(
+                            widget, mainStream!, context)) {
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          PageRouteBuilder(
+                            pageBuilder:
+                                (context, animation, secondaryAnimation) =>
+                                    Scaffold(
+                              backgroundColor: Colors.black,
+                              body: VoipFullscreenStreamView(
+                                session: widget.currentSession,
+                                stream: mainStream!,
+                              ),
+                            ),
+                            transitionsBuilder: (context, animation,
+                                secondaryAnimation, child) {
+                              return FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              );
+                            },
+                            fullscreenDialog: true,
+                          ),
+                        );
+                      },
+                      fit: BoxFit.contain,
+                      key: ValueKey(
+                          "callView_mainStreamView_${mainStream!.streamId}"),
+                    ),
+              ),
+            ),
+          ),
+        ),
+      if (visibleStreams.any((i) => i != mainStream))
+        Flexible(
+          fit: FlexFit.tight,
+          flex: mainStream == null ? 75 : 50,
+          child: Center(
+            child: BentoLayout(visibleStreams
+                .where((element) => element != mainStream)
+                .map((e) => GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _setMainStream(e);
+                      });
+                    },
+                    child: vommetStreamTile(widget, e,
+                            focused: false,
+                            context: context,
+                            focus: (s) => setState(() => mainStream = s)) ??
+                        vommetWithLiveMark(widget, e,
+                            focus: (s) => setState(() => mainStream = s),
+                            child: VoipStreamView(
+                              key: ValueKey("callView__${e.streamId}"),
+                              e,
+                              fit: e.type == VoipStreamType.screenshare
+                                  ? BoxFit.contain
+                                  : BoxFit.cover,
+                              widget.currentSession,
+                              onFullscreen: () {
+                                if (vommetOpenFullscreen(widget, e, context))
+                                  return;
+                                NavigationUtils.navigateTo(
+                                  context,
+                                  Scaffold(
+                                    backgroundColor: Colors.black,
+                                    body: VoipFullscreenStreamView(
+                                      session: widget.currentSession,
+                                      stream: e,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ))))
+                .toList()),
+          ),
+        )
+    ];
+  }
+
+  bool shouldShowAudioStream(VoipStream element, List<VoipStream> streams) {
+    if (element.type == VoipStreamType.audio) {
+      // Vommet: a screen share by person, not device (a camera stays
+      // upstream's per device). A share published from another of their
+      // devices (a second Vommet, a phone) showed their picture and the
+      // stream as two separate tiles. With stream watching the person keeps
+      // their tile while they share (it carries LIVE, vommetWithLiveMark), as
+      // on Discord.
+      final keepWhileSharing = vommetKeepsVoiceTile(widget);
+      if (streams.any((i) =>
+          (i.participantId == element.participantId &&
+              i.type == VoipStreamType.video) ||
+          (!keepWhileSharing &&
+              i.streamUserId == element.streamUserId &&
+              i.type == VoipStreamType.screenshare))) {
+        {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    return true;
+  }
+
+  Widget callEndedView() {
+    return const Center(child: tiamat.Text.label("Call ended"));
+  }
+
+  Widget callIncomingView() {
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        Center(
+          child: RingShakerAnimation(
+            child: Avatar.large(
+                image: room.avatar,
+                placeholderColor: room.defaultColor,
+                placeholderText: room.displayName),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Wrap(
+            spacing: 5,
+            children: [
+              tiamat.CircleButton(
+                icon: Icons.call,
+                onPressed: () async {
+                  await widget.acceptCall?.call();
+                  setState(() {});
+                },
+              ),
+              tiamat.CircleButton(
+                icon: Icons.call_end,
+                onPressed: () async {
+                  await widget.declineCall?.call();
+                  setState(() {});
+                },
+              )
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
