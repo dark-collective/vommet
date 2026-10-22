@@ -1,0 +1,7 @@
+lib/utils/dm_topic_line.dart
+unit_test/dm_topic_line_test.dart
+lib/ui/atoms/room_panel.dart
+lib/ui/atoms/room_panel_view.dart
+lib/ui/organisms/unified_chat_list/unified_chat_model.dart
+lib/ui/organisms/unified_chat_list/unified_chat_rows.dart
+lib/ui/organisms/unified_chat_list/unified_chat_source.dart
