@@ -1,0 +1,11 @@
+lib/config/experiment_entries.dart
+lib/ui/organisms/friends/friends_home_tile.dart
+lib/ui/organisms/new_home/new_home.dart
+lib/ui/organisms/new_home/new_home_column.dart
+lib/ui/organisms/new_home/new_home_layout.dart
+lib/ui/organisms/new_home/new_home_main.dart
+lib/ui/organisms/new_home/new_home_overview.dart
+lib/ui/organisms/new_home/new_home_rooms.dart
+lib/ui/pages/main/main_page_view_desktop.dart
+lib/ui/pages/main/main_page_view_mobile.dart
+unit_test/new_home_layout_test.dart
