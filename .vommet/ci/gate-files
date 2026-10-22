@@ -1,0 +1,3 @@
+lib/telemetry/init_timings_telemetry.dart
+unit_test/init_timings_telemetry_test.dart
+lib/ui/pages/main/main_page.dart
