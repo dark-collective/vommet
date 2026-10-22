@@ -1,0 +1,17 @@
+lib/config/experiment_entries.dart
+lib/ui/organisms/new_home/new_home.dart
+lib/ui/organisms/new_home/new_home_column.dart
+lib/ui/organisms/new_home/new_home_main.dart
+lib/ui/organisms/new_home/new_home_overview.dart
+lib/ui/organisms/new_home/new_home_people.dart
+lib/ui/organisms/new_home/new_home_people_model.dart
+lib/ui/organisms/new_home/new_home_people_store.dart
+lib/ui/organisms/new_home/new_home_rooms.dart
+lib/ui/organisms/new_home/new_home_rooms_model.dart
+lib/ui/organisms/new_home/new_home_shortcuts.dart
+lib/ui/organisms/side_navigation_bar/side_navigation_bar.dart
+lib/ui/pages/main/main_page.dart
+lib/ui/pages/settings/categories/app/appearance_settings_page.dart
+unit_test/new_home_layout_test.dart
+unit_test/new_home_people_test.dart
+unit_test/new_home_rooms_test.dart
