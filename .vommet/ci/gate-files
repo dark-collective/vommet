@@ -1,0 +1,3 @@
+lib/client/matrix/matrix_space.dart
+lib/client/matrix/matrix_client.dart
+unit_test/space_close_test.dart
