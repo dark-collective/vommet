@@ -1,0 +1,6 @@
+lib/client/components/account_switch_prefix/account_switch_prefix.dart
+lib/client/matrix/components/account_switch_prefix/matrix_account_switch_prefix.dart
+lib/ui/molecules/message_input.dart
+lib/ui/pages/settings/categories/account/account_management/account_management_tab.dart
+lib/ui/pages/settings/categories/account/account_management/send_as_patterns_dialog.dart
+unit_test/account_switch_prefix_test.dart
