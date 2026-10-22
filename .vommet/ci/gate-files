@@ -1,0 +1,5 @@
+lib/ui/organisms/new_home/new_home.dart
+lib/ui/organisms/new_home/new_home_column.dart
+lib/ui/organisms/new_home/new_home_main.dart
+lib/ui/organisms/new_home/new_home_shortcuts.dart
+lib/ui/pages/main/main_page_view_mobile.dart
