@@ -1,0 +1,7 @@
+lib/config/experiment_entries.dart
+lib/ui/molecules/sticker_pack_sheet.dart
+lib/ui/organisms/new_home/new_home_cards.dart
+lib/ui/organisms/new_home/new_home_overview.dart
+lib/ui/pages/guides/guide_pictures.dart
+lib/ui/pages/matrix/verification/matrix_verification_view.dart
+lib/ui/pages/settings/categories/account/security/matrix/matrix_security_tab.dart
