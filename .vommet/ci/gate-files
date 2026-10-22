@@ -1,0 +1,11 @@
+lib/client/matrix/timeline_events/matrix_timeline_event_message.dart
+lib/ui/atoms/rich_text/matrix_html_parser.dart
+lib/ui/atoms/room_header.dart
+lib/ui/atoms/search_highlight.dart
+lib/ui/molecules/timeline_events/timeline_view_entry.dart
+lib/ui/organisms/chat/chat_view.dart
+lib/ui/organisms/in_chat_search/in_chat_search.dart
+lib/ui/organisms/in_chat_search/in_chat_search_views.dart
+lib/ui/organisms/room_quick_access_menu/room_quick_access_menu.dart
+lib/ui/organisms/room_side_panel/room_side_panel.dart
+unit_test/in_chat_search_test.dart
