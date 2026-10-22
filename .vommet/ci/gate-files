@@ -1,0 +1,7 @@
+lib/ui/atoms/room_panel_view.dart
+lib/ui/atoms/space_list.dart
+lib/ui/atoms/subspace_section.dart
+lib/ui/organisms/unified_chat_list/unified_chat_rows.dart
+unit_test/tooltip_when_cut_off_test.dart
+lib/ui/molecules/timeline_events/layouts/timeline_event_layout_bubble.dart
+unit_test/chat_bubble_layout_test.dart
