@@ -1,0 +1,2 @@
+lib/client/matrix/components/event_search/matrix_event_search_component.dart
+unit_test/matrix_event_search_test.dart
