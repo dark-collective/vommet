@@ -1,0 +1,6 @@
+lib/ui/organisms/new_home/new_home_layout.dart
+lib/ui/organisms/new_home/new_home_cards.dart
+lib/ui/organisms/new_home/new_home_overview.dart
+lib/ui/organisms/new_home/new_home_people.dart
+lib/ui/organisms/new_home/new_home_main.dart
+unit_test/new_home_cards_test.dart
