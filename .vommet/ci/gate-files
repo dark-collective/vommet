@@ -1,0 +1,12 @@
+lib/utils/minisign.dart
+lib/utils/release_update.dart
+lib/utils/release_notice.dart
+lib/utils/page_reload.dart
+lib/utils/page_reload_stub.dart
+lib/utils/page_reload_web.dart
+lib/ui/atoms/release_notice_bar.dart
+lib/ui/pages/settings/categories/app/release_updates_setting.dart
+lib/ui/pages/settings/categories/app/general_settings_page.dart
+lib/config/preferences.dart
+unit_test/release_update_test.dart
+unit_test/release_notice_bar_test.dart
