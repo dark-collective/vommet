@@ -1,0 +1,6 @@
+lib/telemetry/verification_telemetry.dart
+unit_test/verification_telemetry_test.dart
+lib/telemetry/sync_stats.dart
+lib/ui/molecules/dm_trust_banner.dart
+lib/ui/pages/secure_setup/secure_setup_flow.dart
+lib/ui/pages/settings/categories/account/security/matrix/session/matrix_session.dart
