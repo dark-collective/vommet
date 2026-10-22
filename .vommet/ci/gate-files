@@ -1,0 +1,4 @@
+lib/ui/organisms/new_home/new_home_rooms.dart
+lib/ui/organisms/new_home/new_home_rooms_model.dart
+unit_test/new_home_rooms_controls_test.dart
+unit_test/new_home_rooms_test.dart
