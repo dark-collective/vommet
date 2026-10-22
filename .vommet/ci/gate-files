@@ -1,0 +1,6 @@
+lib/ui/organisms/message_selection/message_selection.dart
+lib/ui/organisms/message_selection/message_selection_host.dart
+lib/ui/organisms/chat/chat_view.dart
+lib/ui/molecules/timeline_events/timeline_view_entry.dart
+lib/ui/molecules/timeline_events/timeline_event_menu.dart
+unit_test/message_selection_views_test.dart
