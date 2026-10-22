@@ -1,0 +1,9 @@
+unit_test/in_app_banner_test.dart
+lib/client/components/push_notification/invite_alerts.dart
+lib/client/components/push_notification/linux/linux_notifier.dart
+lib/client/components/push_notification/modifiers/in_app_banner.dart
+lib/client/components/push_notification/notification_content.dart
+lib/client/components/push_notification/windows/windows_notifier.dart
+lib/client/matrix/components/invitation/matrix_invitation_component.dart
+lib/ui/molecules/in_app_notification_banner.dart
+lib/ui/organisms/side_navigation_bar/side_navigation_bar.dart
