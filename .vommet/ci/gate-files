@@ -1,0 +1,12 @@
+lib/config/app_icon_design.dart
+lib/utils/app_icon.dart
+lib/ui/pages/settings/categories/app/app_icon_settings.dart
+lib/utils/tray/app_tray.dart
+lib/main.dart
+lib/ui/pages/splash/splash_page.dart
+lib/utils/window_management.dart
+lib/ui/pages/settings/categories/app/appearance_settings_page.dart
+lib/ui/pages/setup/onboarding/onboarding_setup.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+unit_test/app_icon_design_test.dart
+unit_test/onboarding_test.dart
