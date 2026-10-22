@@ -1,0 +1,9 @@
+lib/client/matrix/components/widgets/matrix_widget_component.dart
+lib/client/matrix/components/widgets/runners/web_frame/matrix_widget_web_frame.dart
+lib/client/matrix/components/widgets/runners/web_frame/matrix_widget_web_frame_stub.dart
+lib/client/matrix/components/widgets/runners/web_frame/matrix_widget_web_frame_web.dart
+lib/client/matrix/components/widgets/runners/web_frame/widget_frame_origin.dart
+lib/ui/organisms/room_members_list/room_members_list.dart
+lib/ui/organisms/room_quick_access_menu/room_quick_access_menu.dart
+lib/ui/organisms/room_widgets/room_widgets_view.dart
+unit_test/widget_frame_origin_test.dart
