@@ -1,0 +1,7 @@
+lib/ui/organisms/people/people_list.dart
+lib/ui/organisms/people/people_model.dart
+lib/ui/organisms/people/people_strings.dart
+unit_test/people_rail_test.dart
+lib/ui/organisms/side_navigation_bar/side_navigation_bar.dart
+lib/ui/pages/main/main_page_view_desktop.dart
+lib/ui/pages/main/main_page_view_mobile.dart
