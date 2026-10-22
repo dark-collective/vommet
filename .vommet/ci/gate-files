@@ -1,0 +1,3 @@
+lib/client/matrix/matrix_room.dart
+lib/client/matrix/matrix_client.dart
+unit_test/rejoin_timeline_test.dart
