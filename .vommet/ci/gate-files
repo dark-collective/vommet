@@ -1,0 +1,6 @@
+lib/utils/media_spoiler.dart
+lib/config/preferences.dart
+lib/ui/pages/main/main_page.dart
+lib/ui/pages/settings/categories/app/general_settings_page.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+unit_test/media_spoiler_test.dart
