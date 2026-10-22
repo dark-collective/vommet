@@ -1,0 +1,2 @@
+lib/client/matrix/matrix_mxc_image_provider.dart
+unit_test/svg_avatar_fallback_test.dart
