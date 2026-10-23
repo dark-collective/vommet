@@ -1,0 +1,5 @@
+lib/utils/tray/app_tray.dart
+lib/utils/tray/linux_tray.dart
+lib/utils/tray/tray_backend.dart
+lib/utils/tray/windows_tray.dart
+unit_test/windows_tray_test.dart
