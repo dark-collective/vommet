@@ -1,0 +1,3 @@
+lib/ui/atoms/room_panel.dart
+lib/ui/atoms/room_panel_view.dart
+unit_test/room_panel_selected_color_test.dart
