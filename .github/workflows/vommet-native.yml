@@ -1,0 +1,177 @@
+# TRIAL ONLY (ci/windows-native-pkg): the guix job of vommet-native.yml (1.5.0 fallback trial),
+# fed with the published testing-2026-10-23d bundles instead of a Flutter build.
+name: vommet-native
+
+on:
+  push:
+    branches: ['ci/windows-native*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  meta:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+    steps:
+      - id: m
+        run: echo "tag=testing-2026-10-23d" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: meta
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    runs-on: ubuntu-24.04
+    env:
+      NAME: vommet-linux-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.tar.gz
+    steps:
+      - run: |
+          set -euo pipefail
+          u=https://nether.codes/nether/vommet/releases/download/${{ needs.meta.outputs.tag }}
+          curl -sSfL -O "$u/$NAME"; curl -sSfL -O "$u/$NAME.sha256"; sha256sum -c "$NAME.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-linux-${{ matrix.arch }}
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 3
+
+  guix:
+    needs: [meta, linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [latest, release]
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            system: x86_64-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - name: Download both bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-linux-*
+          merge-multiple: true
+
+      - name: Packaging recipes, pointed at this release
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do git clone -q --depth 1 -b guix-150-compat https://nether.codes/nether/vommet-packaging.git pkg && break; [ $i = 3 ] && exit 1; sleep 20; done
+          git -C pkg log -1 --format='vommet-packaging %h %s'
+          sha256sum -c vommet-linux-*-"$TAG".tar.gz.sha256
+          python3 pkg/scripts/update.py "$TAG" "vommet-linux-x64-$TAG.tar.gz.sha256" "vommet-linux-arm64-$TAG.tar.gz.sha256"
+
+      # Recent Guix from the project's CI (what a user who ran `guix pull`
+      # lately has). When ci.guix.gnu.org is down (502s 10-21..23), the last
+      # binary it served (cached, refreshed weekly); only then the 1.5.0
+      # release. vommet.scm loads on 1.5.0 too (keybinder is looked up by
+      # name), so every rung still builds, checks and attaches the .scm.
+      - name: Last good Guix binary
+        id: guixcache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: guix-cache
+          key: guix-binary-${{ matrix.system }}-${{ github.run_id }}
+          restore-keys: guix-binary-${{ matrix.system }}-
+
+      - name: Install Guix
+        run: |
+          set -euo pipefail
+          s=${{ matrix.system }}
+          ok() { [ -s guix.tar.xz ] && tar -tJf guix.tar.xz >/dev/null 2>&1; }
+          if [ "${{ matrix.mode }}" = latest ] && curl -sSfL -m 600 --retry 4 --retry-delay 20 -o guix.tar.xz "https://ci.guix.gnu.org/search/latest/archive?query=spec:tarball+status:success+system:$s+guix-binary.tar.xz" && ok; then
+            echo "Guix: latest from ci.guix.gnu.org"
+            # Re-cache weekly, not per run: the repo's 10 GB cache is full and evicts least-recently-used entries.
+            m="${{ steps.guixcache.outputs.cache-matched-key }}"
+            if [ -z "$m" ] || [[ "${m##*-linux-}" < "$(date -u -d '7 days ago' +%F)" ]]; then
+              mkdir -p guix-cache && cp guix.tar.xz guix-cache/ && echo "GUIX_CACHE_KEY=guix-binary-$s-$(date -u +%F)" >> "$GITHUB_ENV"
+            fi
+          elif [ "${{ matrix.mode }}" = latest ] && cp guix-cache/guix.tar.xz . 2>/dev/null && ok; then
+            echo "::warning title=guix::ci.guix.gnu.org unavailable; using the cached Guix binary (${{ steps.guixcache.outputs.cache-matched-key }})"
+          else
+            echo "::warning title=guix::ci.guix.gnu.org unavailable and no cached Guix binary; falling back to the 1.5.0 release"
+            curl -sSfL -m 600 --retry 4 --retry-delay 20 -o guix.tar.xz "https://ftp.gnu.org/gnu/guix/guix-binary-1.5.0.$s.tar.xz"
+          fi
+          sudo tar --warning=no-timestamp -xf guix.tar.xz -C /; rm guix.tar.xz
+          sudo mkdir -p /root/.config/guix
+          sudo ln -sf /var/guix/profiles/per-user/root/current-guix /root/.config/guix/current
+          sudo groupadd --system guixbuild
+          for i in $(seq -w 1 4); do sudo useradd -g guixbuild -G guixbuild -d /var/empty -s /usr/sbin/nologin -c "Guix build user $i" --system guixbuilder$i; done
+          G=/var/guix/profiles/per-user/root/current-guix
+          sudo "$G/bin/guix" archive --authorize < "$G/share/guix/ci.guix.gnu.org.pub"
+          sudo "$G/bin/guix" archive --authorize < "$G/share/guix/bordeaux.guix.gnu.org.pub"
+          # Ubuntu's AppArmor blocks the unprivileged user namespaces the daemon's build containers need.
+          sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sh -c "$G/bin/guix-daemon --build-users-group=guixbuild --substitute-urls='https://bordeaux.guix.gnu.org https://ci.guix.gnu.org' > /var/log/guix-daemon.log 2>&1 &"
+          sleep 3
+          echo "$G/bin" >> "$GITHUB_PATH"
+          "$G/bin/guix" describe || "$G/bin/guix" --version | head -1
+
+      - name: Cache this Guix binary
+        if: false
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: guix-cache
+          key: ${{ env.GUIX_CACHE_KEY }}
+
+      - name: guix build
+        run: |
+          set -euo pipefail
+          guix download "file://$PWD/vommet-linux-${{ matrix.arch }}-$TAG.tar.gz" | tail -1
+          out=$(guix build --no-grafts -f pkg/vommet/packages/vommet.scm | tail -1)
+          echo "built $out"
+          ls -la "$out/bin" "$out/share/applications"
+          # With the package's own loader: the host's ldd would mix in Ubuntu's glibc.
+          ld=$(readelf -l "$out/lib/vommet/vommet" | sed -n 's/.*interpreter: \(.*\)]/\1/p')
+          missing=$(for f in "$out/lib/vommet/vommet" "$out"/lib/vommet/lib/*.so; do "$ld" --list "$f"; done | grep 'not found' | sort -u || true)
+          [ -z "$missing" ] || { echo "::error title=guix::unresolved libraries: $(echo $missing)"; exit 1; }
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          guix lint -c formatting,description,synopsis -L pkg vommet || true
+
+      - name: Start test (Xvfb, 20 s)
+        continue-on-error: true
+        run: |
+          set +e
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth dbus-x11 >/dev/null
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' timeout 20 "$OUT/bin/vommet" > start.log 2>&1
+          rc=$?; tail -n 25 start.log
+          [ $rc = 124 ] && echo "still running after 20 s: OK" && exit 0
+          echo "::warning title=guix start test::vommet exited with $rc within 20 s under Xvfb"; exit 1
+
+      - name: Package file
+        if: matrix.arch == 'x64'
+        run: |
+          f="vommet-guix-$TAG.scm"; cp pkg/vommet/packages/vommet.scm "$f"
+          sha256sum "$f" > "$f.sha256"; cat "$f.sha256"
+
+      - name: Upload
+        if: false
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-guix
+          path: |
+            vommet-guix-${{ env.TAG }}.scm
+            vommet-guix-${{ env.TAG }}.scm.sha256
+          retention-days: 14
+
+  # Unsigned universal (arm64 + x86_64) app until there is an Apple Developer
+  # account for signing + notarization (secrets set by the maintainer, never
+  # committed). Testers open it with right-click > Open, or
+  # `xattr -dr com.apple.quarantine /Applications/Vommet.app`.
