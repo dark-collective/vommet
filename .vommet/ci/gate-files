@@ -1,0 +1,5 @@
+lib/ui/organisms/user_profile/user_profile.dart
+lib/client/matrix/components/profile/matrix_profile_component.dart
+lib/client/components/profile/profile_component.dart
+lib/telemetry/profile_open_telemetry.dart
+unit_test/profile_open_telemetry_test.dart
