@@ -1,0 +1,3 @@
+lib/ui/molecules/timeline_events/layouts/timeline_event_layout_bubble.dart
+lib/ui/molecules/timeline_events/events/timeline_event_view_message.dart
+unit_test/chat_bubble_layout_test.dart
