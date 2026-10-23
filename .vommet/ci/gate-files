@@ -1,0 +1,3 @@
+integration_test/matrix/sync_gap_test.dart
+integration_test/vommet_runner.dart
+lib/client/matrix/components/encrypted_search_index/matrix_encrypted_search_index_component.dart
