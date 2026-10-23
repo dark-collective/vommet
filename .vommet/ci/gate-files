@@ -1,0 +1,8 @@
+lib/ui/pages/secure_setup/secure_setup_records.dart
+lib/ui/pages/secure_setup/secure_setup_gate.dart
+lib/ui/pages/secure_setup/secure_setup_flow.dart
+lib/ui/pages/settings/categories/account/security/matrix/recovery_checkins_row.dart
+unit_test/recovery_checkins_test.dart
+unit_test/secure_setup_checkin_streak_test.dart
+unit_test/secure_setup_test.dart
+integration_test/matrix/secure_setup_test.dart
