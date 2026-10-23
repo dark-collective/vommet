@@ -1,0 +1,1122 @@
+// Vommet: main.dart is no longer used here, but its import stays so upstream's
+// import block (a merge hot spot for topics) is unchanged.
+// ignore_for_file: unused_import
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:commet/config/build_config.dart';
+import 'package:commet/debug/log.dart';
+import 'package:commet/config/experiment_registry.dart';
+import 'package:commet/config/platform_utils.dart';
+import 'package:commet/config/preferences/bool_preference.dart';
+import 'package:commet/config/preferences/double_preference.dart';
+import 'package:commet/config/preferences/preference.dart';
+import 'package:commet/config/preferences/string_list_preference.dart';
+import 'package:commet/config/preferences/string_preference.dart';
+import 'package:commet/config/room_encryption_default.dart';
+import 'package:commet/config/theme_config.dart';
+import 'package:commet/config/vommet_preferences.dart';
+import 'package:commet/main.dart';
+import 'package:commet/ui/organisms/new_home/new_home.dart';
+import 'package:commet/ui/organisms/new_home/new_home_shortcuts.dart';
+import 'package:flutter/material.dart';
+import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:matrix/matrix.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tiamat/config/style/theme_amoled.dart';
+import 'package:tiamat/config/style/theme_json_converter.dart';
+import 'package:tiamat/config/style/theme_dark.dart';
+import 'package:tiamat/config/style/theme_gradient.dart';
+import 'package:tiamat/config/style/theme_light.dart';
+import 'package:tiamat/config/style/theme_nordic.dart';
+import 'package:tiamat/config/style/theme_you.dart';
+
+// Vommet: our own preferences live in vommet_preferences.dart (mixed in).
+class Preferences with VommetPreferences {
+  SharedPreferences? _preferences;
+
+  @override
+  SharedPreferences? get vommetSharedPreferences => _preferences;
+
+  static const String registeredMatrixClients = "registered_matrix_clients";
+
+  static const String _pushGateway = "push_gateway";
+
+  static const String _optedInExperiments = "opted_in_experiments";
+
+  static const String _syncedCalendarUrls = "synced_calendar_urls";
+
+  static const String _runningDonationCheckFlow = "running_donation_check_flow";
+
+  static const String _systemHotkey = "system_wide_hotkey";
+
+  static final StreamController onSettingChangedController =
+      StreamController.broadcast();
+  Stream get onSettingChanged => onSettingChangedController.stream;
+  bool isInit = false;
+
+  Future<void> init() async {
+    _preferences = await SharedPreferences.getInstance();
+    Preference.preferences = _preferences;
+    // Vommet: experiments are on unless switched off.
+    ExperimentRegistry.applyDefaults();
+    await keepOldDefaultsForExistingInstalls();
+    isInit = true;
+  }
+
+  /// Vommet: settings that used to default to off and are on for new
+  /// installs only (see [keepOldDefaultsForExistingInstalls]).
+  List<BoolPreference> get onForNewInstallsOnly => [
+        showRoomsInSidebar,
+        tenorGifSearchEnabled,
+        experimentNewHome,
+        peopleInRail,
+      ];
+
+  /// Vommet: settings that used to default to on and are off for new
+  /// installs only (see [keepOldDefaultsForExistingInstalls]).
+  List<BoolPreference> get offForNewInstallsOnly => [
+        encryptNewRoomsByDefault,
+      ];
+
+  /// Keys of [onForNewInstallsOnly] and [offForNewInstallsOnly] already
+  /// checked on this install.
+  static const String _oldDefaultsChecked = "vommet_old_defaults_checked";
+
+  // Vommet: an install that already has an account keeps the old default
+  // of each setting in [onForNewInstallsOnly] (off) and
+  // [offForNewInstallsOnly] (on) it never changed, so only new users get the
+  // new defaults. Each setting is checked once per install: a fresh
+  // install that signs in later must not be pinned on its next start (that
+  // happened to the "Standalone rooms" button), and "Back to new-user
+  // defaults" must not be undone on the next start either.
+  Future<void> keepOldDefaultsForExistingInstalls() async {
+    final prefs = _preferences!;
+    final checked = prefs.getStringList(_oldDefaultsChecked) ?? const [];
+    final oldDefaults = {
+      for (final p in onForNewInstallsOnly) p.key: false,
+      for (final p in offForNewInstallsOnly) p.key: true,
+    };
+    final todo =
+        oldDefaults.keys.where((key) => !checked.contains(key)).toList();
+    if (todo.isEmpty) return;
+    final existingInstall = prefs.containsKey(registeredMatrixClients);
+    for (final key in todo) {
+      if (existingInstall && !prefs.containsKey(key)) {
+        await prefs.setBool(key, oldDefaults[key]!);
+      }
+    }
+    await prefs.setStringList(_oldDefaultsChecked, [...checked, ...todo]);
+  }
+
+  List<String>? getRegisteredMatrixClients() {
+    if (_preferences!.containsKey(registeredMatrixClients)) {
+      return _preferences!.getStringList(registeredMatrixClients);
+    }
+
+    return null;
+  }
+
+  void addRegisteredMatrixClient(String name) {
+    List<String> names = List.empty(growable: true);
+    if (_preferences!.containsKey(registeredMatrixClients)) {
+      names = List.from(_preferences!.getStringList(registeredMatrixClients)!,
+          growable: true);
+    }
+
+    names.add(name);
+    _preferences!.setStringList(registeredMatrixClients, names);
+  }
+
+  void removeRegisteredMatrixClient(String name) {
+    List<String>? names;
+    if (_preferences!.containsKey(registeredMatrixClients)) {
+      names = _preferences!.getStringList(registeredMatrixClients)!;
+    }
+
+    if (names != null) {
+      if (names.contains(name)) {
+        names.remove(name);
+      }
+      _preferences!.setStringList(registeredMatrixClients, names);
+    }
+  }
+
+  // Vommet: the built-in themes the Follow System toggles act on. Gradient
+  // and custom (theme.json) themes carry their own colors and brightness.
+  static const builtInThemes = {
+    "light",
+    "dark",
+    "amoled",
+    "nordic",
+    "nordic-polar"
+  };
+
+  // Vommet: Follow System Colors only acts on the built-in themes; gradient
+  // and custom themes carry their own colors.
+  bool get themeFollowsSystem => builtInThemes.contains(activeThemeId);
+
+  static bool isLightTheme(String id) =>
+      id == "light" ||
+      id == "nordic-polar" ||
+      (id.startsWith(ThemeGradient.prefix) &&
+          ThemeGradient.byId(id)?.brightness == Brightness.light);
+
+  // Vommet: with Theme mode "Follow system", any theme can be the light or the
+  // dark one. An unset slot falls back to the pair Follow System Brightness
+  // used before (Light/Dark, Nordic Polar/Nordic), and a gradient or custom
+  // theme fills both slots, which is how it behaved then.
+  NullableStringPreference themeLight =
+      NullableStringPreference("app_theme_light", defaultValue: null);
+  NullableStringPreference themeDark =
+      NullableStringPreference("app_theme_dark", defaultValue: null);
+
+  /// The slot the theme cards fill while following the system. Not stored:
+  /// the settings page opens on the slot in use.
+  final themeSlot = ValueNotifier<Brightness>(Brightness.dark);
+
+  static String _pairFor(String id, Brightness brightness) {
+    if (!builtInThemes.contains(id)) return id;
+    if (id == "nordic" || id == "nordic-polar") {
+      return brightness == Brightness.light ? "nordic-polar" : "nordic";
+    }
+    if (brightness == Brightness.light) return "light";
+    return id == "amoled" ? "amoled" : "dark";
+  }
+
+  String get lightThemeId =>
+      themeLight.value ?? _pairFor(theme.value, Brightness.light);
+  String get darkThemeId =>
+      themeDark.value ?? _pairFor(theme.value, Brightness.dark);
+
+  Brightness get systemBrightness =>
+      WidgetsBinding.instance.platformDispatcher.platformBrightness;
+
+  /// The theme on screen now.
+  String get activeThemeId => !shouldFollowSystemTheme.value
+      ? theme.value
+      : systemBrightness == Brightness.light
+          ? lightThemeId
+          : darkThemeId;
+
+  /// The theme the settings page shows as picked: the slot being filled
+  /// while following the system, otherwise the one theme.
+  String get pickedThemeId => !shouldFollowSystemTheme.value
+      ? theme.value
+      : themeSlot.value == Brightness.light
+          ? lightThemeId
+          : darkThemeId;
+
+  Future<void> pickTheme(String id) async {
+    if (!shouldFollowSystemTheme.value) {
+      await theme.set(id);
+    } else if (themeSlot.value == Brightness.light) {
+      await themeLight.set(id);
+    } else {
+      await themeDark.set(id);
+    }
+  }
+
+  /// The theme id [resolveTheme] draws: the slot for [brightness] (default:
+  /// the system's) while following the system, otherwise the one theme.
+  String resolveThemeId({Brightness? brightness}) {
+    if (!shouldFollowSystemTheme.value) return theme.value;
+    return (brightness ?? systemBrightness) == Brightness.light
+        ? lightThemeId
+        : darkThemeId;
+  }
+
+  Future<ThemeData> resolveTheme({Brightness? overrideBrightness}) async {
+    var following = shouldFollowSystemTheme.value;
+    if (following) overrideBrightness ??= systemBrightness;
+    var id = resolveThemeId(brightness: overrideBrightness);
+
+    // Vommet: on web, custom themes are kept in the browser's storage.
+    if (PlatformUtils.isWeb &&
+        !builtInThemes.contains(id) &&
+        !id.startsWith(ThemeGradient.prefix)) {
+      try {
+        var custom = await ThemeConfig.loadWebTheme(id);
+        if (custom != null) return custom;
+      } catch (e) {
+        Log.w("Could not load theme $id: $e");
+      }
+    }
+
+    if (!PlatformUtils.isWeb) {
+      var custom = await ThemeConfig.getThemeByName(id);
+      if (custom != null) {
+        var jsonString = await custom.readAsString();
+        var json = const JsonDecoder().convert(jsonString);
+        var themedata = await ThemeJsonConverter.fromJson(json, custom);
+        if (themedata != null) {
+          return themedata;
+        }
+      }
+    }
+
+    // Gradient themes carry their own brightness, like custom themes.
+    if (id.startsWith(ThemeGradient.prefix)) {
+      var preset = ThemeGradient.byId(id);
+      if (preset != null) {
+        return ThemeGradient.theme(preset);
+      }
+    }
+
+    // Amoled has no system-colors variant unless it fills the dark slot.
+    if (shouldFollowSystemColors.value &&
+        builtInThemes.contains(id) &&
+        (following || id != "amoled")) {
+      return ThemeYou.theme(overrideBrightness ??
+          (isLightTheme(id) ? Brightness.light : Brightness.dark));
+    }
+
+    return switch (id) {
+      "light" => ThemeLight.theme,
+      "dark" => ThemeDark.theme,
+      "amoled" => ThemeAmoled.theme,
+      "nordic" => ThemeNordic.theme,
+      "nordic-polar" => ThemeNordic.polar,
+      _ => ThemeDark.theme,
+    };
+  }
+
+  Future<void> clear() async {
+    await _preferences!.clear();
+  }
+
+  Future<void> setPushGateway(String value) async {
+    await _preferences!.setString(_pushGateway, value);
+  }
+
+  // Vommet: upstream's default is push.commet.chat, Commet's own gateway. The
+  // fork ships no Google-services build, and for UnifiedPush it defaults to
+  // the UnifiedPush project's public Matrix gateway. Pushers registered with
+  // the old default are replaced on the next start (updatePushers deletes
+  // pushers whose gateway URL differs).
+  String get pushGateway => BuildConfig.ENABLE_GOOGLE_SERVICES
+      ? "push.commet.chat"
+      : _preferences!.getString(_pushGateway) ??
+          "matrix.gateway.unifiedpush.org";
+
+  Future<void> setExperimentEnabled(String experiment, bool value) async {
+    var experiments = _preferences?.getStringList(_optedInExperiments) ??
+        List.empty(growable: true);
+
+    if (value) {
+      if (experiments.contains(experiment) == false) {
+        experiments.add(experiment);
+      }
+    } else {
+      experiments.removeWhere((e) => e == experiment);
+    }
+
+    await _preferences!.setStringList(_optedInExperiments, experiments);
+  }
+
+  bool isExperimentEnabled(String experiment) {
+    return _preferences
+            ?.getStringList(_optedInExperiments)
+            ?.contains(experiment) ==
+        true;
+  }
+
+  Map<String, dynamic> getCalendarSources(String roomId) {
+    var content = _preferences!.getString(_syncedCalendarUrls + ".${roomId}");
+    if (content != null) {
+      return jsonDecode(content);
+    } else {
+      return {};
+    }
+  }
+
+  Future<void> setCalendarSources(String roomId, Map<String, dynamic> sources) {
+    return _preferences!
+        .setString(_syncedCalendarUrls + ".${roomId}", jsonEncode(sources));
+  }
+
+  (String, DateTime)? get runningDonationCheckFlow {
+    var result = _preferences!.getString(_runningDonationCheckFlow);
+
+    if (result != null) {
+      var data = jsonDecode(result);
+      var user = data["user"] as String;
+      var timestamp = data["time"] as int;
+
+      var time = DateTime.fromMillisecondsSinceEpoch(timestamp);
+
+      return (user, time);
+    }
+
+    return null;
+  }
+
+  Future<void> setRunningDonationCheckFlow(
+      String value, DateTime timestamp) async {
+    _preferences!.setString(
+        _runningDonationCheckFlow,
+        jsonEncode({
+          "user": value,
+          "time": timestamp.millisecondsSinceEpoch,
+        }));
+
+    onSettingChangedController.add(null);
+  }
+
+  Future<void> clearRunningDonationCheckFlow() async {
+    _preferences!.remove(_runningDonationCheckFlow);
+
+    onSettingChangedController.add(null);
+  }
+
+  /// Vommet: what the member list shows under a name: "homeserverOrStatus"
+  /// (the default), "homeserverAndStatus" or "statusOff" (MemberListSubtitle).
+  StringPreference memberListSubtitle = StringPreference(
+      "vommet_member_list_subtitle",
+      defaultValue: "homeserverOrStatus");
+
+  String getHotkeyId(String name) {
+    return _systemHotkey + ".$name";
+  }
+
+  Future<void> setSystemHotkey(String name, HotKey? key) async {
+    var k = getHotkeyId(name);
+
+    if (key == null) {
+      await _preferences!.remove(k);
+    } else {
+      await _preferences!.setString(k, jsonEncode(key.toJson()));
+    }
+  }
+
+  HotKey? getSystemHotkey(String name) {
+    var item = _preferences!.getString(getHotkeyId(name));
+    if (item == null) return null;
+
+    return HotKey.fromJson(jsonDecode(item));
+  }
+
+  Future<void> setVoipUserVolume(String userId, double volume) async {
+    _preferences!.setDouble("call_user_volume:${userId}", volume);
+  }
+
+  double getVoipUserVolume(String userId) {
+    return _preferences?.getDouble("call_user_volume:${userId}") ?? 1.0;
+  }
+
+  /// Vommet: the presence an account chose on its profile card: "online"
+  /// (follows app activity), "idle" or "invisible".
+  String getPresenceMode(String clientId) {
+    return _preferences?.getString("presence_mode:${clientId}") ?? "online";
+  }
+
+  Future<void> setPresenceMode(String clientId, String mode) async {
+    await _preferences!.setString("presence_mode:${clientId}", mode);
+  }
+
+  String _acceptedCapabilitiesKey(String clientId, String widgetNamespace) =>
+      "accepted_widget_capabilities:${clientId}:${widgetNamespace}";
+
+  String _rejectedCapabilitiesKey(String clientId, String widgetNamespace) =>
+      "rejected_widget_capabilities:${clientId}:${widgetNamespace}";
+
+  String _widgetAllowedKey(String clientId, String widgetNamespace) =>
+      "allowed_widget:${clientId}:${widgetNamespace}";
+
+  Future<void> setWidgetAllowed(
+      String clientId, String widgetNamespace, bool allowed) async {
+    await _preferences?.setBool(
+        _widgetAllowedKey(clientId, widgetNamespace), allowed);
+  }
+
+  bool getWidgetAllowed(String clientId, String widgetNamespace) {
+    return _preferences
+            ?.getBool(_widgetAllowedKey(clientId, widgetNamespace)) ??
+        false;
+  }
+
+  // Vommet: widgets the user always opens in their browser (Linux).
+  String _widgetInBrowserKey(String clientId, String widgetNamespace) =>
+      "widget_in_browser:${clientId}:${widgetNamespace}";
+
+  Future<void> setWidgetInBrowser(
+      String clientId, String widgetNamespace, bool inBrowser) async {
+    final key = _widgetInBrowserKey(clientId, widgetNamespace);
+    if (inBrowser) {
+      await _preferences?.setBool(key, true);
+    } else {
+      await _preferences?.remove(key);
+    }
+  }
+
+  bool getWidgetInBrowser(String clientId, String widgetNamespace) =>
+      _preferences?.getBool(_widgetInBrowserKey(clientId, widgetNamespace)) ??
+      false;
+
+  // Vommet: Linux opens widgets in the user's browser instead of Vommet's
+  // own window.
+  BoolPreference widgetsOpenInBrowser =
+      BoolPreference("widgets_open_in_browser", defaultValue: false);
+
+  Future<void> allowWidgetCapabilityPermissions(String clientId,
+      String widgetNamespace, List<String> capabilities) async {
+    var currentAccepted = _preferences?.getStringList(
+            _acceptedCapabilitiesKey(clientId, widgetNamespace)) ??
+        [];
+
+    var currentRejected = _preferences?.getStringList(
+            _rejectedCapabilitiesKey(clientId, widgetNamespace)) ??
+        [];
+
+    currentAccepted = List.from(currentAccepted, growable: true);
+
+    currentRejected = List.from(currentRejected, growable: true);
+
+    for (var capability in capabilities) {
+      currentRejected.remove(capability);
+
+      if (currentAccepted.contains(capability) == false) {
+        currentAccepted.add(capability);
+      }
+    }
+
+    _preferences?.setStringList(
+        _acceptedCapabilitiesKey(clientId, widgetNamespace), currentAccepted);
+    _preferences?.setStringList(
+        _rejectedCapabilitiesKey(clientId, widgetNamespace), currentRejected);
+  }
+
+  Future<void> rejectWidgetCapabilityPermissions(String clientId,
+      String widgetNamespace, List<String> capabilities) async {
+    var currentAccepted = _preferences?.getStringList(
+            _acceptedCapabilitiesKey(clientId, widgetNamespace)) ??
+        [];
+
+    var currentRejected = _preferences?.getStringList(
+            _rejectedCapabilitiesKey(clientId, widgetNamespace)) ??
+        [];
+
+    currentAccepted = List.from(currentAccepted, growable: true);
+
+    currentRejected = List.from(currentRejected, growable: true);
+
+    for (var capability in capabilities) {
+      currentAccepted.remove(capability);
+
+      if (currentRejected.contains(capability) == false) {
+        currentRejected.add(capability);
+      }
+    }
+
+    _preferences?.setStringList(
+        _acceptedCapabilitiesKey(clientId, widgetNamespace), currentAccepted);
+    _preferences?.setStringList(
+        _rejectedCapabilitiesKey(clientId, widgetNamespace), currentRejected);
+  }
+
+  // Vommet experiment: Block / Unblock in profiles and a blocked users list
+  // in Settings › Security.
+  BoolPreference experimentBlockUsers =
+      BoolPreference("vommet_experiment_block_users", defaultValue: false);
+
+  Future<List<String>> getAcceptedWidgetCapabilities(
+      String clientId, String widgetNamespace) async {
+    return _preferences?.getStringList(
+            _acceptedCapabilitiesKey(clientId, widgetNamespace)) ??
+        [];
+  }
+
+  Future<List<String>> getRejectedWidgetCapabilities(
+      String clientId, String widgetNamespace) async {
+    return _preferences?.getStringList(
+            _rejectedCapabilitiesKey(clientId, widgetNamespace)) ??
+        [];
+  }
+
+  Future<void> clearWidgetSettings(
+      String clientId, String widgetNamespace) async {
+    await _preferences
+        ?.remove(_acceptedCapabilitiesKey(clientId, widgetNamespace));
+
+    await _preferences
+        ?.remove(_rejectedCapabilitiesKey(clientId, widgetNamespace));
+
+    await _preferences?.remove(_widgetAllowedKey(clientId, widgetNamespace));
+  }
+
+  /// Vommet: the app language (Settings › General › Language), an
+  /// AppLanguage id such as "de" or "zh_Hant"; "" follows the device.
+  /// Read once at startup.
+  StringPreference appLanguage =
+      StringPreference("vommet_app_language", defaultValue: "");
+
+  static const String _roomsListCache = "rooms_list_cache";
+
+  Map<String, List<String>> getRoomsListCache() {
+    var str = _preferences?.getString(_roomsListCache) ?? "{}";
+    var data = jsonDecode(str) as Map<String, dynamic>;
+
+    var result = Map<String, List<String>>.new();
+    for (var entry in data.entries) {
+      result[entry.key] = data.tryGetList<String>(entry.key) ?? [];
+    }
+
+    return result;
+  }
+
+  Future<void> storeRoomsListCache(Map<String, List<String>> rooms) async {
+    await _preferences?.setString(_roomsListCache, jsonEncode(rooms));
+  }
+
+  // Vommet: a notice at the bottom of the app when a newer release is out.
+  BoolPreference releaseNotice =
+      BoolPreference("vommet_release_notice", defaultValue: true);
+
+  // Vommet issue 593: download a newer release's file without asking first
+  // (installing still takes a tap), and whether the bar already asked once.
+  BoolPreference releaseAutoDownload =
+      BoolPreference("vommet_release_auto_download", defaultValue: false);
+  BoolPreference releaseUpdateAsked =
+      BoolPreference("vommet_release_update_asked", defaultValue: false);
+
+  BoolPreference shouldFollowSystemTheme =
+      BoolPreference("should_follow_system_theme", defaultValue: false);
+
+  // Vommet: the Linux title bar (config/title_bar_brightness.dart): "theme"
+  // follows the app theme, "light" or "dark" force it.
+  StringPreference linuxTitleBar =
+      StringPreference("linux_title_bar", defaultValue: "theme");
+
+  BoolPreference shouldFollowSystemColors =
+      BoolPreference("should_follow_system_colors", defaultValue: false);
+
+  // Vommet: a "Manage rooms" editor for a space.
+  BoolPreference experimentManageSpaceRooms =
+      BoolPreference("experiment_manage_space_rooms", defaultValue: false);
+
+  BoolPreference minimizeOnClose =
+      BoolPreference("minimize_on_close", defaultValue: false);
+
+  /// Vommet issue 454: a tray icon on Linux desktops that have a tray.
+  BoolPreference showTrayIcon =
+      BoolPreference("vommet_show_tray_icon", defaultValue: true);
+
+  /// Vommet issue 454: closing the window hides it to the tray icon.
+  BoolPreference closeToTray =
+      BoolPreference("vommet_close_to_tray", defaultValue: false);
+
+  /// Vommet issue 536: the tray icon shows the unread count as a badge.
+  BoolPreference trayUnreadBadge =
+      BoolPreference("vommet_tray_unread_badge", defaultValue: true);
+
+  BoolPreference developerMode =
+      BoolPreference("developer_mode", defaultValue: false);
+
+  BoolPreference widgetDeveloperMode =
+      BoolPreference("widget_developer_mode", defaultValue: false);
+
+  // Vommet: secure messaging setup at sign-in (Vommet issue 129). On by
+  // default; an experiment only so it can be turned off for crash triage.
+  BoolPreference experimentSecureSetup =
+      BoolPreference("experiment_secure_setup", defaultValue: true);
+
+  BoolPreference showStateEvents =
+      BoolPreference("show_state_events", defaultValue: true);
+
+  // Vommet: with developer mode on, also draw the events the timeline
+  // normally hides (reactions, deletions, unknown types) as raw rows. Opt-in:
+  // developer mode alone flooded the timeline with them.
+  BoolPreference showHiddenEvents =
+      BoolPreference("vommet_show_hidden_events", defaultValue: false);
+
+  bool get hiddenEventsShown => developerMode.value && showHiddenEvents.value;
+
+  BoolPreference collapseStateEvents =
+      BoolPreference("collapse_state_events", defaultValue: true);
+
+  // Vommet: lay out consecutive pictures/videos from one sender as a mosaic.
+  BoolPreference groupConsecutiveMedia =
+      BoolPreference("group_consecutive_media", defaultValue: true);
+
+  BoolPreference debugTranslations =
+      BoolPreference("enable_translations_debug", defaultValue: false);
+
+  // Vommet: "Today", "Yesterday", weekdays on the timeline's date dividers.
+  BoolPreference relativeDateDividers =
+      BoolPreference("vommet_relative_date_dividers", defaultValue: true);
+
+  // Vommet: on for new installs (Commet: off); installs that already had an
+  // account keep it off unless they turned it on (onForNewInstallsOnly).
+  BoolPreference tenorGifSearchEnabled =
+      BoolPreference("enable_tenor_gif_search", defaultValue: true);
+
+  //Workaround for: https://github.com/commetchat/commet/issues/202
+  BoolPreference stickerCompatibilityMode =
+      BoolPreference("sticker_compatibility_mode", defaultValue: true);
+
+  BoolPreference useFallbackTurnServer =
+      BoolPreference("use_fallback_turn_server", defaultValue: false);
+
+  // Vommet: off by default. Commet's on-screen call overlay draws plain
+  // names over every window, which new users took for a rendering bug.
+  BoolPreference useVoipOverlay =
+      BoolPreference("use_voip_overlay", defaultValue: false);
+
+  BoolPreference urlPreviewInE2EEChat =
+      BoolPreference("use_url_preview_in_e2ee_chat", defaultValue: false);
+
+  // Vommet: org-mode style /italics/ in sent messages.
+  BoolPreference orgModeItalics =
+      BoolPreference("org_mode_italics", defaultValue: true);
+
+  // Vommet: formatting bar on selection (desktop), Aa button (phone).
+  BoolPreference formattingPopup =
+      BoolPreference("formatting_popup", defaultValue: true);
+
+  BoolPreference messageEffectsEnabled =
+      BoolPreference("message_effects_enabled", defaultValue: true);
+
+  BoolPreference showRoomAvatars =
+      BoolPreference("show_room_avatars", defaultValue: true);
+
+  // Vommet: on by default for new installs; existing installs keep the old
+  // default (off) via keepOldDefaultsForExistingInstalls.
+  BoolPreference showRoomsInSidebar =
+      BoolPreference("show_rooms_in_sidebar", defaultValue: true);
+
+  BoolPreference usePlaceholderRoomAvatars =
+      BoolPreference("use_placeholder_room_avatars", defaultValue: false);
+
+  // Vommet: on by default (Discord shows media everywhere).
+  BoolPreference previewMediaInPublicRooms =
+      BoolPreference("preview_media_in_public_rooms", defaultValue: true);
+
+  BoolPreference previewMediaInPrivateRooms =
+      BoolPreference("preview_media_in_private_rooms", defaultValue: true);
+
+  /// Vommet: clicking a space reopens the room you were in when you left it
+  /// (Vommet issue 35); on by default.
+  BoolPreference experimentLastRoomPerSpace = BoolPreference(
+      "vommet_experiment_last_room_per_space",
+      defaultValue: true);
+
+  /// Vommet: where you were in each space (JSON, see LastRoomPerSpace).
+  StringPreference lastRoomPerSpace =
+      StringPreference("vommet_last_room_per_space", defaultValue: "");
+
+  BoolPreference showMediaInNotifications =
+      BoolPreference("show_media_in_notifications", defaultValue: true);
+
+  BoolPreference formatNotificationBody =
+      BoolPreference("format_notification_body", defaultValue: true);
+
+  /// Vommet: while the app is open, show notifications as in-app banners
+  /// instead of system notifications. On by default on mobile.
+  BoolPreference inAppNotificationBanners = BoolPreference(
+      "in_app_notification_banners",
+      defaultValue: PlatformUtils.isAndroid);
+
+  /// Vommet issue 554: notify when someone reacts to one of your messages
+  /// (in rooms that aren't muted).
+  BoolPreference notifyOnReactions =
+      BoolPreference("vommet_notify_on_reactions", defaultValue: false);
+
+  BoolPreference previewUrlInNotifications =
+      BoolPreference("preview_urls_in_notification", defaultValue: true);
+
+  BoolPreference useLegacyNotificationHandler =
+      BoolPreference("use_legacy_notification_handler", defaultValue: false);
+
+  BoolPreference openRoomsAtLastReadMessage =
+      BoolPreference("open_rooms_at_last_read_message", defaultValue: false);
+
+  BoolPreference askBeforeDeletingMessageEnabled =
+      BoolPreference("ask_before_deleting_message_enabled", defaultValue: true);
+
+  // Vommet experiment: "Select" in the message menu, to act on several
+  // messages at once.
+  BoolPreference experimentSelectMessages =
+      BoolPreference("vommet_experiment_select_messages", defaultValue: true);
+
+  // Vommet experiment: "Forward" in the message menu.
+  BoolPreference experimentForwardMessages =
+      BoolPreference("vommet_experiment_forward_messages", defaultValue: false);
+
+  // Vommet experiment: keep unsent text when switching rooms.
+  BoolPreference experimentMessageDrafts =
+      BoolPreference("vommet_experiment_message_drafts", defaultValue: false);
+
+  BoolPreference silenceNotifications = BoolPreference(
+      "silence_notifications_when_other_device_active",
+      defaultValue: true);
+
+  // Vommet: notification level applied to rooms and direct chats when they
+  // are joined: a PushRule name, or "default" to leave them at the account's
+  // default notifications.
+  StringPreference defaultRoomPushRule =
+      StringPreference("default_room_push_rule", defaultValue: "default");
+
+  StringPreference defaultDirectPushRule =
+      StringPreference("default_direct_push_rule", defaultValue: "default");
+
+  BoolPreference showNotificationBadgesInTaskbar =
+      BoolPreference("show_notification_badges_in_taskbar", defaultValue: true);
+
+  BoolPreference disableTextCursorManagement =
+      BoolPreference("disable_text_cursor_management", defaultValue: false);
+
+  BoolPreference hideRoomSidePanel =
+      BoolPreference("hide_room_side_panel", defaultValue: false);
+
+  // Vommet: messages sent while offline go out when back online, also after
+  // a restart (see OfflineSending).
+  BoolPreference experimentOfflineSending =
+      BoolPreference("experiment_offline_sending", defaultValue: false);
+
+  BoolPreference experimentMessageTimestamps =
+      BoolPreference("experiment_message_timestamps", defaultValue: false);
+
+  BoolPreference experimentRoomCalls =
+      BoolPreference("experiment_room_calls", defaultValue: false);
+
+  BoolPreference experimentMultiSfu =
+      BoolPreference("experiment_multi_sfu", defaultValue: false);
+
+  BoolPreference showRoomPreviewsInSpaceSidebar =
+      BoolPreference("show_room_previews_in_space_sidebar", defaultValue: true);
+
+  BoolPreference autoFocusMessageTextBox = BoolPreference(
+      "auto_focus_message_textbox",
+      defaultGetter: () => PlatformUtils.isAndroid ? false : true,
+      defaultValue: false);
+
+  BoolPreference selectAutoCompleteSuggestion =
+      BoolPreference("select_auto_complete_suggestion", defaultValue: false);
+
+  // Vommet: the app font (config/app_font.dart): "" = the theme's fonts.
+  StringPreference appFont = StringPreference("app_font", defaultValue: "");
+
+  StringPreference appFontFile =
+      StringPreference("app_font_file", defaultValue: "");
+
+  BoolPreference automaticallyOpenSpace =
+      BoolPreference("open_space_on_room_navigation", defaultValue: true);
+
+  BoolPreference pauseAnimationsWhenNotFocused =
+      BoolPreference("pause_animations_When_not_focused", defaultValue: true);
+
+  // Vommet: play GIFs (and bridged GIF videos) by themselves in the
+  // timeline. Off = they sit still until tapped.
+  BoolPreference autoplayGifs =
+      BoolPreference("autoplay_gifs", defaultValue: true);
+
+  // Vommet: like Telegram, a revealed media spoiler is blurred again once
+  // you switch to another room and come back. Off = it stays revealed until
+  // Vommet restarts.
+  BoolPreference rehideMediaSpoilers =
+      BoolPreference("rehide_media_spoilers", defaultValue: true);
+
+  BoolPreference autoRotateImages =
+      BoolPreference("lightbox_rotate_images", defaultValue: false);
+
+  // Vommet experiment: arrow keys / swipe between a room's pictures and
+  // videos in the image viewer.
+  BoolPreference experimentLightboxGallery =
+      BoolPreference("vommet_experiment_lightbox_gallery", defaultValue: false);
+
+  BoolPreference autoRotateVideos =
+      BoolPreference("lightbox_rotate_videos", defaultValue: false);
+
+  DoublePreference textScale =
+      DoublePreference("text_scale", defaultValue: 1.0);
+
+  // Vommet: desktop pane widths (the space/room list and the member panel),
+  // set by dragging their edges; double-click an edge to reset.
+  DoublePreference leftPaneWidth =
+      DoublePreference("vommet_left_pane_width", defaultValue: 250);
+
+  DoublePreference rightPaneWidth =
+      DoublePreference("vommet_right_pane_width", defaultValue: 250);
+
+  // Vommet issue 539: the Telegram-style chat list's width on desktop, kept
+  // apart from the Discord-style layout's panes.
+  DoublePreference chatListPaneWidth =
+      DoublePreference("vommet_chat_list_pane_width", defaultValue: 400);
+
+  // Vommet experiment: Discord-style layout (collapsing banners, online and
+  // offline member sections, resizable panes).
+  BoolPreference experimentBannerLayout =
+      BoolPreference("vommet_experiment_banner_layout", defaultValue: false);
+
+  // Vommet experiment: read state per thread (threaded read receipts, unread
+  // marks in the room's thread list).
+  BoolPreference experimentThreadReadState = BoolPreference(
+      "vommet_experiment_thread_read_state",
+      defaultValue: false);
+
+  // Vommet: the glow behind banner titles: "theme" (the theme's colour, the
+  // default), "classic" (always the classic blue) or "off".
+  StringPreference bannerGradient =
+      StringPreference("vommet_banner_gradient", defaultValue: "theme");
+
+  /// Vommet: what a thread card previews: "latest", "first" or "both".
+  StringPreference threadPreviewMode =
+      StringPreference("vommet_thread_preview_mode", defaultValue: "latest");
+
+  /// Vommet: how a reply shows the message it answers: "compact" (Commet's
+  /// line above the message), "quote" (Element-like) or "card"
+  /// (Telegram-like). See ReplyStyle.
+  StringPreference replyStyle =
+      StringPreference("vommet_reply_style", defaultValue: "quote");
+
+  /// Vommet issue 620: height of stickers in the timeline, in logical pixels
+  /// (GIFs keep [stickerSizeDefault]).
+  DoublePreference stickerSize = DoublePreference("timeline_sticker_size",
+      defaultValue: stickerSizeDefault);
+
+  static const double stickerSizeDefault = 200;
+  static const double stickerSizeMin = 64;
+  static const double stickerSizeMax = 256;
+
+  BoolPreference doSimulcast =
+      BoolPreference("livekit_use_simulcast", defaultValue: true);
+
+  BoolPreference enableNotifications =
+      BoolPreference("notifications_enabled", defaultValue: true);
+
+  /// Vommet: days to keep cached media nobody opened; 0 keeps it forever.
+  DoublePreference mediaCacheKeepDays =
+      DoublePreference("media_cache_keep_days", defaultValue: 5);
+
+  /// Vommet: media cache size limit in MB; 0 means unlimited.
+  DoublePreference mediaCacheLimitMb =
+      DoublePreference("media_cache_limit_mb", defaultValue: 0);
+
+  /// Vommet: automatic media download on Wi-Fi and on mobile data, as
+  /// AutoDownloadPolicy JSON; empty means everything downloads.
+  StringPreference autoDownloadWifi =
+      StringPreference("auto_download_wifi", defaultValue: "");
+
+  StringPreference autoDownloadMobile =
+      StringPreference("auto_download_mobile", defaultValue: "");
+
+  BoolPreference suppressNotificationWhenRoomFocused = BoolPreference(
+      "suppress_notification_when_room_focused",
+      defaultValue: true);
+
+  // Vommet: on by default so encrypted rooms' calls work out of the box.
+  BoolPreference experimentEnableE2eeElementCall = BoolPreference(
+      "experiment_enabled_e2ee_element_call",
+      defaultValue: true);
+
+  BoolPreference experimentSlidingSync =
+      BoolPreference("experiment_sliding_sync", defaultValue: false);
+
+  BoolPreference experimentNoiseSuppression =
+      BoolPreference("experiment_noise_suppression", defaultValue: false);
+
+  /// Vommet: ask libwebrtc to level the microphone (automatic gain control).
+  /// Commet opens the microphone with it off, which sounds quieter than
+  /// Element Call and Discord.
+  BoolPreference experimentAutoGainControl =
+      BoolPreference("experiment_auto_gain_control", defaultValue: false);
+
+  /// Vommet: the profile card (status message, presence, avatar and banner)
+  /// and the microphone volume slider.
+  BoolPreference experimentQuickProfileControls =
+      BoolPreference("experiment_quick_profile_controls", defaultValue: false);
+
+  // Vommet: on by default; an experiment only so it can be switched off when
+  // triaging a crash.
+  BoolPreference experimentEncryptionMarkers =
+      BoolPreference("experiment_encryption_markers", defaultValue: true);
+
+  // Vommet: on by default; an experiment only so it can be switched off when
+  // triaging a crash.
+  BoolPreference experimentDmTrustWarnings =
+      BoolPreference("experiment_dm_trust_warnings", defaultValue: true);
+
+  BoolPreference useSharedIsolateInBackgroundTasks = BoolPreference(
+      "use_shared_isolate_in_background_tasks",
+      defaultValue: false);
+
+  BoolPreference showPerformanceOverlay =
+      BoolPreference("show_performance_overlay", defaultValue: false);
+
+  DoublePreference notificationsVolume =
+      DoublePreference("notifications_volume", defaultValue: 90.0);
+
+  /// Vommet: the user's sound choices (JSON, see AppSounds).
+  StringPreference soundChoices =
+      StringPreference("vommet_sound_choices", defaultValue: "{}");
+
+  DoublePreference streamBitrate =
+      DoublePreference("screenshare_bitrate_mbps", defaultValue: 8);
+
+  DoublePreference streamAudioBitrate =
+      DoublePreference("stream_audio_kbps", defaultValue: 96);
+
+  DoublePreference streamFramerate =
+      DoublePreference("screenshare_fps", defaultValue: 60);
+
+  // Vommet: subspaces drawn with guide lines, voice rooms show who's in them.
+  BoolPreference experimentSidebarSubspaceGuides =
+      BoolPreference("experiment_sidebar_subspace_guides", defaultValue: false);
+
+  // Vommet: quick ways to open a voice room's text chat.
+  BoolPreference experimentVoiceRoomChat =
+      BoolPreference("experiment_voice_room_chat", defaultValue: false);
+
+  StringPreference streamCodec =
+      StringPreference("livekit_screenshare_codec", defaultValue: "h264");
+
+  StringPreference streamResolution = StringPreference(
+      "livekit_screenshare_resolution",
+      defaultValue: "1920x1080");
+
+  DoublePreference appScale = DoublePreference("app_scale", defaultValue: 1.0);
+
+  DoublePreference emojiPickerHeight =
+      DoublePreference("emoji_picker_height", defaultValue: 300);
+
+  BoolPreference experimentSidebarDesktopDrag =
+      BoolPreference("experiment_sidebar_desktop_drag", defaultValue: false);
+
+  BoolPreference experimentSidebarPinnedRooms =
+      BoolPreference("experiment_sidebar_pinned_rooms", defaultValue: false);
+
+  BoolPreference experimentSidebarNewestUnreadDms = BoolPreference(
+      "experiment_sidebar_newest_unread_dms",
+      defaultValue: false);
+
+  DoublePreference customOnscreenKeyboardViewOffset = DoublePreference(
+      "custom_onscreen_keyboard_view_offset",
+      defaultValue: 0.0);
+
+  StringPreference proxyUrl =
+      StringPreference("proxy_url", defaultValue: "proxy.nether.im");
+
+  StringPreference fallbackTurnServer = StringPreference("fallback_turn_server",
+      defaultValue: "stun:turn.matrix.org");
+
+  StringPreference theme = StringPreference("app_theme", defaultValue: "dark");
+
+  // Vommet: build date (ms) of the last build whose "What's new" was seen.
+  NullableStringPreference whatsNewSeenBuild = NullableStringPreference(
+      "vommet_whats_new_seen_build",
+      defaultValue: null);
+
+  NullableStringPreference lastOpenedVersion =
+      NullableStringPreference("last_run_version", defaultValue: null);
+
+  NullableBoolPreference unifiedPushEnabled =
+      NullableBoolPreference("unified_push_enabled", defaultValue: null);
+
+  // Vommet: the welcome screen after the first sign-in has been shown.
+  BoolPreference welcomeShown =
+      BoolPreference("vommet_welcome_shown", defaultValue: false);
+
+  NullableBoolPreference checkForUpdates =
+      NullableBoolPreference("check_for_updates", defaultValue: null);
+
+  /// Opt-in diagnostics (Vommet). null = not asked yet; asked once on the
+  /// consent screen, changeable in Settings › Privacy.
+  NullableBoolPreference telemetryConsent =
+      NullableBoolPreference("telemetry_consent", defaultValue: null);
+
+  /// Random ID that diagnostics are filed under; never derived from an
+  /// account. Kept when diagnostics are turned off (so earlier reports can
+  /// still be deleted); replaced by "Delete my diagnostics".
+  NullableStringPreference telemetryInstallId =
+      NullableStringPreference("telemetry_install_id", defaultValue: null);
+
+  /// Optional name tag the user types to group their own diagnostics across
+  /// devices (Settings › Privacy). Empty by default; never filled in from the
+  /// account. With a tag, reports aren't pseudonymous. See TelemetryTag.
+  NullableStringPreference telemetryTag =
+      NullableStringPreference("telemetry_tag", defaultValue: null);
+
+  NullableStringPreference layoutOverride =
+      NullableStringPreference("layout_override", defaultValue: null);
+
+  /// "off", "standard" (RNNoise), "best" (DeepFilterNet3) or "auto"; only
+  /// used while [experimentNoiseSuppression] is on.
+  StringPreference voipNoiseSuppression =
+      StringPreference("voip_noise_suppression", defaultValue: "auto");
+
+  /// Vommet: microphone volume, 0.0 to 2.0 (Discord's 0-200 %), where the
+  /// voice filter runs.
+  DoublePreference voipMicrophoneVolume =
+      DoublePreference("voip_microphone_volume", defaultValue: 1.0);
+
+  /// Vommet: volume of everyone in a call, 0.0 to 2.0, on top of each
+  /// person's own volume (Discord's output volume).
+  DoublePreference voipOutputVolume =
+      DoublePreference("voip_output_volume", defaultValue: 1.0);
+
+  /// Vommet: push to talk. The microphone only sends while the push to talk
+  /// key or the call bar's talk button is held (see PushToTalk).
+  BoolPreference voipPushToTalk =
+      BoolPreference("voip_push_to_talk", defaultValue: false);
+
+  /// Vommet: seconds the microphone keeps sending after push to talk is let
+  /// go (Discord's release delay), 0 to 2.
+  DoublePreference voipPushToTalkReleaseDelay =
+      DoublePreference("voip_push_to_talk_release_delay", defaultValue: 0.2);
+
+  /// Vommet: a soft click when push to talk starts and stops sending.
+  BoolPreference voipPushToTalkSounds =
+      BoolPreference("voip_push_to_talk_sounds", defaultValue: true);
+
+  /// Vommet: each call as a card (room, space, account) with its own mute
+  /// and deafen (see CallManager.perCall).
+  BoolPreference experimentCallCards =
+      BoolPreference("experiment_call_cards", defaultValue: false);
+
+  /// The mode the call panel's noise suppression button turns back on.
+  StringPreference voipNoiseSuppressionLastOn =
+      StringPreference("voip_noise_suppression_last_on", defaultValue: "auto");
+
+  NullableStringPreference voipDefaultAudioInput =
+      NullableStringPreference("voip_default_audio_input", defaultValue: null);
+
+  NullableStringPreference voipDefaultAudioOutput =
+      NullableStringPreference("voip_default_audio_output", defaultValue: null);
+
+  NullableStringPreference voipDefaultVideoInput =
+      NullableStringPreference("voip_default_video_input", defaultValue: null);
+
+  NullableStringPreference filterClient =
+      NullableStringPreference("filter_client_id", defaultValue: null);
+
+  StringListPreference roomDirectorySavedServers =
+      StringListPreference("room_directory_saved_servers", defaultValue: []);
+
+  BoolPreference roomDirectoryShowSuggestions =
+      BoolPreference("room_directory_show_suggestions", defaultValue: true);
+
+  NullableStringPreference fcmKey =
+      NullableStringPreference("fcm_key", defaultValue: null);
+
+  NullableStringPreference unifiedPushEndpoint =
+      NullableStringPreference("unified_push_endpoint", defaultValue: null);
+
+  NullableStringPreference lastDownloadLocation =
+      NullableStringPreference("last_download_location", defaultValue: null);
+
+  StringListPreference allowedRemoteVideoHosts =
+      StringListPreference("allowed_remote_video_hosts", defaultValue: []);
+
+  // Vommet: link bare addresses such as example.com in messages, like
+  // Telegram. Off = only http(s):// and www. links.
+  BoolPreference linkBareDomains =
+      BoolPreference("link_bare_domains", defaultValue: true);
+
+  StringListPreference expandedSpaceGroups =
+      StringListPreference("expanded_space_groups", defaultValue: []);
+
+  DoublePreference playerVolume =
+      DoublePreference("player_volume", defaultValue: 100);
+  BoolPreference isPlayerMuted =
+      BoolPreference("is_player_muted", defaultValue: false);
+}
