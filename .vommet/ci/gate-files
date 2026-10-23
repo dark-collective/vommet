@@ -1,0 +1,5 @@
+lib/ui/atoms/lightbox_full_screen.dart
+lib/ui/atoms/lightbox_zoom.dart
+lib/ui/atoms/lightbox.dart
+lib/ui/atoms/lightbox_gallery.dart
+unit_test/lightbox_full_screen_test.dart
