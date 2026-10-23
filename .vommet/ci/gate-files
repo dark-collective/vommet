@@ -1,0 +1,2 @@
+lib/ui/organisms/unified_chat_list/unified_chat_rows.dart
+unit_test/unified_chat_selected_color_test.dart
