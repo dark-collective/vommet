@@ -1,0 +1,139 @@
+# Vommet: integration tests (Flutter integration_test on the Linux desktop app
+# against a throwaway Tuwunel homeserver at https://localhost, under Xvfb, with
+# a screen recording) for the testing candidate. Runs only on the GitHub copy
+# (github.com/dark-collective/vommet); replaces Forgejo's integration.yml for
+# sync/testing (2026-10-11, Phase 3 of moving release builds off the
+# single-slot Forgejo runner).
+#
+# Security model (operator 10-11: "without us getting hacked"):
+# - Self-contained. The homeserver is started inside this job on 127.0.0.1 with
+#   a fresh self-signed CA and made-up users (.vommet/it/homeserver.sh); the job
+#   never connects to nether.im, the tailnet or any host of ours, and nothing
+#   of ours accepts connections from GitHub. Results flow back only because
+#   our sync tooling (ghgate.sh) polls GitHub's public API.
+# - No secrets, read-only token (permissions: contents: read), no release.
+# - Pinned inputs: actions by commit SHA, the job image by digest (the public
+#   catthehacker act-22.04 image the Forgejo CI image is built FROM), Tuwunel by
+#   version AND sha256.
+# - Runs only on pushes of our own branches (github-copy.yml is the only
+#   writer); never on pull_request, so outside forks can't trigger it.
+# - The artifact (screen recording + logs) shows only the throwaway test
+#   accounts; GitHub keeps it 14 days, visible to logged-in GitHub users.
+name: vommet-integration
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/windows-it*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Test file under commet/ (default: integration_test/vommet_runner.dart)'
+        default: 'integration_test/vommet_runner.dart'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  TUWUNEL_VERSION: v1.9.3
+  TUWUNEL_SHA256: 98c3b0be352cc03b2c6b21d6f2ed60fedc926f4aab61ce37f0b89eed97d5b756
+
+jobs:
+  linux:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    # Root inside the container: homeserver.sh binds port 443 and installs its
+    # throwaway CA, as in the Forgejo job.
+    container:
+      image: ghcr.io/catthehacker/ubuntu@sha256:f5f5c29208c4fd541704fe7b8df33d3bf620ce4ac46f36853b7abeb0159705c4
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The Forgejo CI image's apt list (.vommet/ci/Dockerfile), test tools included.
+      - name: Install native build and test dependencies
+        run: |
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Downloads retry under a watchdog; the install itself then runs from the local cache.
+          aptr() { for i in 1 2 3; do timeout "$1" "${@:2}" && return 0
+            echo "::warning::try $i of '${*:2:4}' failed or ran over $1 s"; sleep 10; done; return 1; }
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="\
+            ca-certificates curl xz-utils git unzip zip build-essential clang lld llvm cmake ninja-build pkg-config \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev libsecret-1-dev libjsoncpp-dev libpulse-dev \
+            xvfb jq openssl zstd dbus dbus-x11 gnome-keyring dunst"
+          aptr 180 apt-get $o update -qq
+          aptr 420 apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null
+          apt-get install -y -qq --no-install-recommends $p >/dev/null
+          git config --global --add safe.directory '*'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: it-cargo-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock') }}
+          restore-keys: it-cargo-
+
+      - name: Install Rust and Tuwunel
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          tw="$HOME/tuwunel-$TUWUNEL_VERSION"
+          curl -fsSL -o tw.zst "https://github.com/matrix-construct/tuwunel/releases/download/$TUWUNEL_VERSION/$TUWUNEL_VERSION-release-all-x86_64-v1-linux-gnu-tuwunel.zst"
+          echo "$TUWUNEL_SHA256  tw.zst" | sha256sum -c -
+          zstd -q -d tw.zst -o "$tw" && rm tw.zst && chmod +x "$tw"
+          echo "TUWUNEL=$tw" >> "$GITHUB_ENV"
+
+      - name: Configure Flutter and generate code
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Integration tests
+        env:
+          TARGET: ${{ inputs.target || 'integration_test/vommet_runner.dart' }}
+        run: |
+          set -o pipefail
+          .vommet/it/run.sh "$TARGET" || {
+            rc=$?
+            # Failing tests ("[E]" in the expanded reporter) as an annotation:
+            # readable without a GitHub login, unlike the raw log.
+            msg=$(grep -E '\[E\]$' it-out/flutter-test.log 2>/dev/null | sed -E 's/^[0-9:+ -]+//' | sort -u | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 it-out/flutter-test.log 2>/dev/null)
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=integration tests failed::$msg"
+            exit $rc; }
+          # The pass count, public like the failure annotation, to compare runs.
+          echo "::notice title=integration tests passed::$(grep -E '^[0-9:]+ \+[0-9]+.*All tests passed' it-out/flutter-test.log | tail -1)"
+
+      - name: Upload screen recording and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: integration-${{ github.run_number }}
+          path: it-out/
+          retention-days: 14

@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly Vommet GPU widget check, 3:15 AM Eastern
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 America/New_York
+RandomizedDelaySec=0
+
+[Install]
+WantedBy=timers.target
