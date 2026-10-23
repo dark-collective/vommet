@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "updated": "2026-10-19",
+  "about": "Machine-readable copy of https://nether.wiki/matrix/homeservers/ for Matrix clients. Keep it in step with the table on that page. registration: open | token | invite. calls: the server has MatrixRTC (LiveKit) voice/video set up.",
+  "servers": [
+    {
+      "server": "nether.im",
+      "us": true,
+      "summary": "Small 18+ community: creatives, intellectuals, psychonauts, furries.",
+      "registration": "invite",
+      "registration_note": "Ask an existing member for an invite.",
+      "calls": true,
+      "tags": ["18+"],
+      "info_url": "https://nether.wiki/matrix/joining/"
+    },
+    {
+      "server": "tchncs.de",
+      "summary": "Solid general-purpose server, running since about 2017. Germany.",
+      "registration": "open",
+      "registration_note": "Captcha on the sign-up page.",
+      "calls": true,
+      "tags": [],
+      "info_url": "https://tchncs.de/matrix"
+    },
+    {
+      "server": "nope.chat",
+      "summary": "No ads or tracking. Deletes messages after about 180 days.",
+      "registration": "open",
+      "calls": true,
+      "tags": ["180-day retention"],
+      "info_url": "https://nope.chat/"
+    },
+    {
+      "server": "4d2.org",
+      "summary": "Privacy and tech crowd, with many bridges to other networks.",
+      "registration": "token",
+      "registration_note": "Asks for a registration token, a real email and a captcha. No VPN/Tor sign-ups.",
+      "calls": true,
+      "tags": ["18+"],
+      "info_url": "https://4d2.org/"
+    },
+    {
+      "server": "cutefunny.art",
+      "summary": "18+ NSFW art community, otaku-centric.",
+      "registration": "token",
+      "registration_note": "The token is published on their rules page.",
+      "calls": false,
+      "tags": ["18+"],
+      "info_url": "https://cutefunny.art/"
+    },
+    {
+      "server": "scoutpa.ws",
+      "summary": "Small 18+ furry community, kink-friendly.",
+      "registration": "invite",
+      "registration_note": "Ask in their Telegram info channel; entry is approved by hand.",
+      "calls": true,
+      "tags": ["18+"],
+      "info_url": "https://t.me/+Hk9AwumkDGc1YzE0"
+    }
+  ]
+}
