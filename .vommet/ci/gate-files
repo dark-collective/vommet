@@ -1,0 +1,5 @@
+lib/ui/atoms/emoji_widget.dart
+lib/ui/molecules/timeline_events/timeline_event_menu_dialog.dart
+lib/ui/molecules/room_timeline_widget/room_timeline_overlay.dart
+lib/ui/molecules/timeline_events/timeline_view_entry.dart
+unit_test/emoji_widget_test.dart
