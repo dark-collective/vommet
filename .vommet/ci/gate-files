@@ -1,0 +1,4 @@
+lib/ui/molecules/timeline_events/message_text_selection.dart
+lib/ui/molecules/timeline_events/timeline_event_menu.dart
+lib/ui/molecules/timeline_events/events/timeline_event_view_message.dart
+unit_test/message_text_selection_test.dart
