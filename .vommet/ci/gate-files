@@ -1,0 +1,4 @@
+lib/utils/image/lod_image.dart
+lib/ui/atoms/space_icon.dart
+lib/ui/atoms/sidebar_room_icon.dart
+unit_test/rail_avatar_sharp_at_test.dart
