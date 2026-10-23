@@ -1,0 +1,6 @@
+lib/ui/molecules/compact_room_list.dart
+lib/ui/organisms/new_home/new_home_column.dart
+lib/ui/organisms/new_home/new_home_shortcuts.dart
+unit_test/new_home_section_badge_test.dart
+unit_test/new_home_rail_tab_lit_test.dart
+unit_test/new_home_compact_rows_test.dart
