@@ -1,0 +1,11 @@
+lib/client/matrix/matrix_client.dart
+lib/telemetry/loop_lag.dart
+lib/telemetry/main_spans.dart
+lib/telemetry/native_thread_probe.dart
+lib/telemetry/native_thread_probe_io.dart
+lib/telemetry/native_thread_probe_stub.dart
+lib/telemetry/platform_calls.dart
+lib/utils/scaled_app.dart
+unit_test/main_spans_test.dart
+unit_test/native_thread_probe_test.dart
+unit_test/platform_calls_test.dart
