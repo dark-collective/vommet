@@ -1,0 +1,6 @@
+lib/client/matrix/matrix_default_push_rule.dart
+lib/ui/organisms/notification_level/apply_push_rule.dart
+lib/ui/pages/settings/categories/app/notification_settings/default_push_rule_settings.dart
+lib/ui/pages/settings/categories/space/space_general_settings_page.dart
+lib/ui/molecules/space_menu.dart
+unit_test/bulk_push_rule_test.dart
