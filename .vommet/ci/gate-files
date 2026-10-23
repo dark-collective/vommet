@@ -1,0 +1,5 @@
+lib/config/preferences.dart
+lib/ui/molecules/timeline_events/events/timeline_event_view_sticker.dart
+lib/ui/pages/settings/categories/app/appearance_settings_page.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+unit_test/sticker_size_test.dart
