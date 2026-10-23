@@ -1,0 +1,5 @@
+lib/ui/organisms/room_members_list/media_grid_zoom.dart
+lib/ui/organisms/room_members_list/room_members_list.dart
+lib/ui/pages/settings/categories/room/settings_category_room.dart
+lib/ui/pages/settings/categories/room/media/room_media_settings_page.dart
+unit_test/media_grid_zoom_test.dart
