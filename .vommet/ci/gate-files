@@ -1,0 +1,6 @@
+lib/config/vommet_preferences.dart
+lib/ui/organisms/room_members_list/media_grid_zoom.dart
+lib/ui/organisms/room_members_list/room_attachments.dart
+lib/ui/organisms/room_members_list/room_members_list.dart
+lib/ui/pages/main/room_chat_layout.dart
+unit_test/media_grid_zoom_test.dart
