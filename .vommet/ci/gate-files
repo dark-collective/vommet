@@ -1,0 +1,5 @@
+lib/ui/organisms/friends/linked_accounts.dart
+lib/ui/organisms/friends/friends_model.dart
+lib/ui/organisms/friends/friends_view.dart
+lib/ui/organisms/new_home/new_home_people.dart
+unit_test/friends_test.dart
