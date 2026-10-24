@@ -1,0 +1,10 @@
+lib/client/components/url_preview/url_preview_room_policy.dart
+lib/client/matrix/components/url_preview/matrix_room_url_previews.dart
+lib/config/new_user_defaults.dart
+lib/config/preferences.dart
+lib/ui/pages/settings/categories/app/general_settings_page.dart
+lib/ui/pages/settings/categories/app/privacy_settings_page.dart
+lib/ui/pages/settings/categories/room/general/room_general_url_previews.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+lib/ui/pages/settings/categories/app/link_preview_settings_panel.dart
+unit_test/url_preview_mode_test.dart
