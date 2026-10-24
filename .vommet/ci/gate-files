@@ -1,0 +1,4 @@
+lib/utils/release_notice.dart
+lib/ui/atoms/release_notice_bar.dart
+lib/ui/pages/settings/categories/about/settings_category_about.dart
+unit_test/release_notice_test.dart
