@@ -1,0 +1,10 @@
+unit_test/new_home_tabs_test.dart
+unit_test/new_home_views_test.dart
+unit_test/new_home_tab_pick_test.dart
+unit_test/new_home_people_test.dart
+unit_test/new_home_layout_test.dart
+unit_test/new_home_editor_test.dart
+unit_test/new_home_fallback_test.dart
+unit_test/new_home_cards_test.dart
+unit_test/new_home_overview_customize_test.dart
+unit_test/new_home_undo_test.dart
