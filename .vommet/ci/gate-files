@@ -1,0 +1,9 @@
+lib/client/matrix/matrix_permalink.dart
+lib/client/matrix/matrix_client.dart
+lib/utils/event_bus.dart
+lib/utils/links/link_utils.dart
+lib/ui/pages/main/main_page.dart
+lib/ui/molecules/room_timeline_widget/room_timeline_widget_view.dart
+lib/ui/molecules/timeline_events/timeline_event_menu.dart
+unit_test/matrix_permalink_test.dart
+unit_test/matrix_link_parse_test.dart
