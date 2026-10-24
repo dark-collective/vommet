@@ -1,0 +1,8 @@
+lib/client/matrix/components/encrypted_search_index/matrix_encrypted_search_index_component.dart
+lib/client/matrix/matrix_client.dart
+lib/client/matrix/matrix_mxc_image_provider.dart
+lib/utils/matrix_http_client.dart
+lib/utils/matrix_http_client_io.dart
+lib/utils/matrix_http_client_stub.dart
+unit_test/startup_request_storm_test.dart
+unit_test/matrix_http_client_test.dart
