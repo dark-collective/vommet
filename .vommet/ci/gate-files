@@ -1,0 +1,4 @@
+lib/ui/organisms/new_home/new_home_people.dart
+lib/ui/organisms/new_home/new_home_people_model.dart
+lib/ui/organisms/new_home/new_home_people_store.dart
+unit_test/new_home_people_test.dart
