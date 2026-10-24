@@ -1,0 +1,7 @@
+lib/client/components/activities/activities_component.dart
+lib/client/components/user_presence/user_presence_component.dart
+lib/client/matrix/components/room_activities/matrix_activities_component.dart
+lib/client/matrix/components/user_presence/matrix_user_presence.dart
+lib/ui/organisms/new_home/new_home_people.dart
+lib/ui/organisms/new_home/new_home_people_model.dart
+unit_test/new_home_people_test.dart
