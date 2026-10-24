@@ -1,0 +1,139 @@
+# Vommet: a session's unit gate (format, pub get, codegen, analyze, unit tests)
+# on the GitHub copy (github.com/dark-collective/vommet). Replaces the
+# TEMPLATE-style /srv/vommet-checks gates that vommet-stage's check.yml ran in
+# the Forgejo runner's single slot (~24 h a week, 2026-10-18).
+#
+# How it gets here: a session pushes its merged check tree to Forgejo as the
+# branch gate/<name> (vommet-tools/gate.sh), optionally with
+# .vommet/ci/gate-files (the files to format-check; absent = the whole tree,
+# as CI does). Forgejo's pr-github.yml (main's trusted copy, light runner)
+# snapshots it as ONE parentless commit whose .github/ holds only this file
+# (from ci/windows-release) and force-pushes it as the TAG ci-gate-<name>; it
+# mirrors the result onto the gate commit as the Forgejo status
+# "gate / unit (github)" and prunes gate tags/branches after 3 days.
+#
+# Same steps, order and per-step timeouts as /srv/vommet-checks/TEMPLATE.sh,
+# and it stops at the first failure (a compile error never reaches the tests).
+# Security: as vommet-pr.yml. Our workflow only, no secrets, contents: read,
+# persist-credentials off, nothing written to the repo; caches stay scoped to
+# the gate's own tag.
+name: vommet-gate
+
+on:
+  push:
+    tags: ['ci-gate-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  unit:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install failure-annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/ci_run" <<'SH'
+          #!/usr/bin/env bash
+          # ci_run <step name> <command...>: the step's error lines as a public
+          # annotation titled "GATE FAIL: <step>", like the gate logs' marker.
+          set -o pipefail
+          step=$1; shift
+          log=$(mktemp)
+          "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            msg=$(grep -E '\[E\]$' "$log" | sed -E 's/^[0-9:+ -]+//' | sort -u | tail -n 40)
+            [ -n "$msg" ] || msg=$(grep -E '^ *(error|warning) - |FAIL|Some tests failed|Expected|Actual|^Changed |error:|Error:' "$log" | head -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log")
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=GATE FAIL: $step::$msg"
+          fi
+          exit "$status"
+          SH
+          chmod +x "$HOME/bin/ci_run"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # Vommet: the script the desktop widget window injects (widgets_ipc.js)
+      # against a strict widget client, in node (2026-10-19: messages without
+      # a source hung Watch Together). Bases without the check skip it.
+      - name: Widget window IPC check
+        run: |
+          if [ -f .vommet/widgets/ipc-check.mjs ]; then ci_run "widget ipc" node .vommet/widgets/ipc-check.mjs --self-test
+          else echo "no .vommet/widgets/ipc-check.mjs on this base; skipped"; fi
+
+      # Same packages as vommet-linux.yml (the unit tests load native libs).
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            clang lld llvm cmake ninja-build pkg-config jq \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev \
+            libsecret-1-dev libjsoncpp-dev libpulse-dev libpipewire-0.3-dev >/dev/null
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-gate-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock') }}
+          restore-keys: cargo-gate-
+
+      - name: Configure Flutter
+        run: flutter config --no-analytics --enable-linux-desktop
+
+      - name: format
+        timeout-minutes: 5
+        run: |
+          files=$(cat .vommet/ci/gate-files 2>/dev/null | tr '\n' ' ')
+          cd $PROJECT_PATH
+          # gate-files are relative to commet/ (as TEMPLATE's FILES).
+          ci_run format dart format --language-version=3.6 -o none --set-exit-if-changed ${files:-.}
+
+      - name: pub get
+        timeout-minutes: 10
+        run: cd $PROJECT_PATH && ci_run "pub get" flutter pub get
+
+      - name: codegen
+        timeout-minutes: 10
+        run: |
+          cd $PROJECT_PATH
+          rm -rf lib/generated
+          ci_run codegen dart run scripts/codegen.dart
+
+      # Warnings are fatal too (dart analyze's default), as in TEMPLATE.
+      - name: analyze
+        timeout-minutes: 10
+        run: cd $PROJECT_PATH && ci_run analyze dart analyze
+
+      - name: unit tests
+        timeout-minutes: 20
+        run: cd $PROJECT_PATH && ci_run "unit tests" flutter test unit_test
+
+      - name: Done
+        run: |
+          echo "::notice title=GATE-DONE::$(git log -1 --format=%s)"
