@@ -1,0 +1,10 @@
+lib/ui/organisms/new_home/new_home_layout.dart
+lib/ui/organisms/new_home/new_home_tabs.dart
+lib/ui/organisms/new_home/new_home_cards.dart
+lib/ui/organisms/new_home/new_home_editor.dart
+lib/ui/organisms/new_home/new_home_column.dart
+lib/ui/organisms/new_home/new_home_overview.dart
+lib/ui/organisms/new_home/new_home_live_calls.dart
+lib/ui/organisms/new_home/new_home_live_calls_model.dart
+lib/ui/organisms/side_navigation_bar/side_navigation_bar.dart
+unit_test/new_home_live_calls_test.dart
