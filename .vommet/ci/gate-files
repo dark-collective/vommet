@@ -1,0 +1,3 @@
+lib/ui/pages/settings/desktop_settings_page.dart
+lib/ui/pages/settings/search/settings_search.dart
+unit_test/desktop_settings_single_column_test.dart
