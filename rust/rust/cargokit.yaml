@@ -1,0 +1,14 @@
+# Vommet: environment for the C/C++ parts of voice message transcription
+# (whisper.cpp and libopus, Vommet issue 70), passed to their build scripts.
+# - GGML_NATIVE=OFF: otherwise whisper.cpp compiles for the build machine's CPU
+#   (-march=native), and the binaries we ship run on other people's.
+# - TrackFileAccess=false: on Windows, MSBuild's file tracker writes .tlog
+#   files under CMake's try-compile dirs, which end up past the 260-character
+#   path limit inside cargokit's build dir (FTK1011, the build fails).
+cargo:
+  debug:
+    extra_flags: ["--config", "env.GGML_NATIVE='OFF'", "--config", "env.TrackFileAccess='false'"]
+  profile:
+    extra_flags: ["--config", "env.GGML_NATIVE='OFF'", "--config", "env.TrackFileAccess='false'"]
+  release:
+    extra_flags: ["--config", "env.GGML_NATIVE='OFF'", "--config", "env.TrackFileAccess='false'"]
