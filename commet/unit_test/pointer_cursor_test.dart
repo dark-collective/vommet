@@ -1,0 +1,63 @@
+import 'package:commet/ui/atoms/clickable_gesture_detector.dart';
+import 'package:commet/ui/atoms/room_panel_view.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tiamat/config/style/theme_base.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+// Vommet issue 452: Flutter only shows the hand cursor over buttons and
+// InkWells on web (adaptiveClickable); desktop should show it too.
+void main() {
+  Future<MouseCursor?> cursorOver(WidgetTester tester, Widget child) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeBase.theme(ColorScheme.fromSeed(seedColor: Colors.blue)),
+      home: Scaffold(body: Center(child: child)),
+    ));
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(tester.getCenter(find.byKey(const Key("target"))));
+    await tester.pump();
+    return RendererBinding.instance.mouseTracker
+        .debugDeviceActiveCursor(gesture.pointer);
+  }
+
+  final clickable = <String, Widget Function(void Function()? onTap)>{
+    "room list tile": (onTap) => SizedBox(
+        key: const Key("target"),
+        width: 300,
+        child: RoomPanelView(displayName: "Room", onTap: onTap)),
+    "tiamat TextButton": (onTap) =>
+        tiamat.TextButton("Settings", key: const Key("target"), onTap: onTap),
+    "tiamat CircleButton": (onTap) => tiamat.CircleButton(
+        key: const Key("target"), icon: Icons.add, onPressed: onTap),
+    "material IconButton": (onTap) => IconButton(
+        key: const Key("target"),
+        icon: const Icon(Icons.add),
+        onPressed: onTap),
+    "ElevatedButton": (onTap) => ElevatedButton(
+        key: const Key("target"), onPressed: onTap, child: const Text("Go")),
+    "Switch": (onTap) => Switch(
+        key: const Key("target"),
+        value: false,
+        onChanged: onTap == null ? null : (_) => onTap()),
+    "ClickableGestureDetector": (onTap) => ClickableGestureDetector(
+        onTap: onTap,
+        child: const SizedBox(key: Key("target"), width: 50, height: 50)),
+  };
+
+  for (final entry in clickable.entries) {
+    testWidgets("${entry.key} shows the hand cursor when clickable",
+        (tester) async {
+      expect(await cursorOver(tester, entry.value(() {})),
+          SystemMouseCursors.click);
+    });
+
+    testWidgets("${entry.key} keeps the arrow when disabled", (tester) async {
+      expect(await cursorOver(tester, entry.value(null)),
+          isNot(SystemMouseCursors.click));
+    });
+  }
+}
