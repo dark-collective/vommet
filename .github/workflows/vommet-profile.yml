@@ -1,0 +1,227 @@
+# Vommet: on-request Flutter PROFILE-mode Linux arm64 build of a published
+# tester release, for CPU profiles / timelines in Flutter DevTools on a
+# weak aarch64 laptop (the Guix package vommet-profile repacks it). Runs only
+# on the GitHub copy (github.com/dark-collective/vommet); Forgejo never sees
+# this file. NOT part of any release or gate.
+#
+#   vommet-linux-arm64-profile-<tag>.tar.gz (+ .sha256)   ubuntu-24.04-arm
+#
+# Same build as vommet-native.yml's linux arm64 job (same toolchain, glibc
+# <= 2.41, COMMET_PROD=1, BUILD_MODE=release so the app behaves as the
+# release does and uses the same data dir, VERSION_TAG = the release tag,
+# reproducible single bundle/ layout), except `flutter build linux
+# --profile` and BUILD_DETAIL=profile (shows in About). The bundle path is
+# build/linux/arm64/profile/bundle, packed as bundle/.
+#
+# A profile build starts the Dart VM service on 127.0.0.1 (random port,
+# auth code in the URL) and prints "The Dart VM service is listening on
+# http://127.0.0.1:<port>/<code>/" to stdout. The Linux embedder reads engine
+# switches from FLUTTER_ENGINE_SWITCHES=<n> + FLUTTER_ENGINE_SWITCH_<i>=<flag
+# without -->, in debug/profile only; e.g. vm-service-port=8181 pins the port
+# (the Guix launcher does that).
+#
+# How it is started (no write token on GitHub is needed): vommet-tools'
+# profile-build.sh <tag> pushes the Forgejo branch ci/windows-profile = the
+# tag's tree + this file as the only workflow + .vommet/ci/{source-sha,
+# source-time,profile-tag}; github-copy copies it here, the push runs this.
+# The release job attaches the tarball to a GitHub pre-release
+# profile-<tag>-<run>; profile-build.sh then copies it to the nether.codes
+# release <tag>.
+name: vommet-profile
+
+on:
+  push:
+    branches: ['ci/windows-profile', 'ci/windows-profile-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-profile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # = .github/workflows/release.yml
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  linux-profile:
+    if: github.repository == 'dark-collective/vommet'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - id: m
+        name: Release tag, source commit, build date
+        run: |
+          set -euo pipefail
+          tag=$(cat .vommet/ci/profile-tag)
+          [[ $tag =~ ^testing-[0-9]{4}-[0-9]{2}-[0-9]{2}[a-z]*$ ]] || { echo "::error::bad profile-tag '$tag'"; exit 1; }
+          sha=$(cat .vommet/ci/source-sha); ct=$(cat .vommet/ci/source-time)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "date=${ct}000" >> "$GITHUB_OUTPUT"
+          echo "NAME=vommet-linux-${{ matrix.arch }}-profile-$tag.tar.gz" >> "$GITHUB_ENV"
+          echo "tag $tag, source $sha, BUILD_DATE ${ct}000"
+
+      # clang/lld 18: third-party plugins build with -Werror, newer clang trips warnings.
+      - name: Install toolchain and native dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            clang-18 lld-18 llvm-18 g++ cmake ninja-build pkg-config binutils curl git unzip xz-utils zip \
+            libgtk-3-dev libmpv-dev libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libkeybinder-3.0-dev libasound2-dev libsecret-1-dev libjsoncpp-dev \
+            libpulse-dev libpipewire-0.3-dev >/dev/null
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+          . /etc/os-release; echo "$PRETTY_NAME, $(ldd --version | head -1)"
+
+      - name: Install Rust (stable, rustup)
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null; then
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none --no-checkout https://github.com/flutter/flutter.git "$RUNNER_TOOL_CACHE/flutter"
+          git -C "$RUNNER_TOOL_CACHE/flutter" -c advice.detachedHead=false checkout -q "$FLUTTER_VERSION"
+          echo "$RUNNER_TOOL_CACHE/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          flutter config --no-analytics --enable-linux-desktop >/dev/null
+          flutter --version
+          clang --version | head -1; ld.lld --version; cmake --version | head -1; cargo --version
+
+      - name: Pub get + codegen
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          rm -rf build
+          for i in 1 2 3; do flutter pub get && break; [ $i = 3 ] && exit 1; sleep 30; done
+          dart run scripts/codegen.dart
+
+      - name: Build Linux (profile, BUILD_DETAIL=profile)
+        env:
+          COMMET_PROD: 1
+          CC: clang
+          CXX: clang++
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          flutter build linux --profile \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=${{ steps.m.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ steps.m.outputs.tag }} \
+            --dart-define BUILD_DETAIL=profile \
+            --dart-define BUILD_DATE=${{ steps.m.outputs.date }}
+
+      - name: Checks (app id, glibc <= 2.41, profile engine, DT_NEEDED)
+        run: |
+          set -euo pipefail
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/profile/bundle
+          ls -la $B $B/lib
+          ids=$(strings -a $B/vommet | grep im.nether.chat | sort -u)
+          echo "$ids"
+          [ -n "$ids" ] || { echo "::error title=app id::im.nether.chat not found"; exit 1; }
+          if grep -q '\.develop' <<<"$ids"; then echo "::error title=app id::develop app id (COMMET_PROD not set?)"; exit 1; fi
+          vers=$(objdump -T $B/vommet $B/lib/*.so | grep -o 'GLIBC_2\.[0-9]*' | sort -t. -k2 -n -u)
+          bad=$(awk -F. '$2 > 41' <<<"$vers")
+          [ -z "$bad" ] || { echo "::error title=glibc::symbols newer than GLIBC_2.41: $(echo $bad)"; exit 1; }
+          echo "glibc OK (max $(tail -1 <<<"$vers"))"
+          # The profile engine honours FLUTTER_ENGINE_SWITCHES (release does not).
+          eng=$(strings -a $B/lib/libflutter_linux_gtk.so)
+          grep -qx FLUTTER_ENGINE_SWITCHES <<<"$eng" \
+            || { echo "::error title=engine::libflutter_linux_gtk.so lacks FLUTTER_ENGINE_SWITCHES (not a profile engine?)"; exit 1; }
+          echo "profile engine OK"
+          echo "DT_NEEDED:"; objdump -p $B/vommet $B/lib/*.so | awk '$1 == "NEEDED" {print $2}' | sort -u
+
+      # Headless smoke: start it under Xvfb with a pinned VM service port and
+      # check the service answers. Proves the launcher's env switches work.
+      - name: VM service smoke test
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth dbus-x11 >/dev/null
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/profile/bundle
+          export HOME=$RUNNER_TEMP/smokehome; mkdir -p "$HOME"
+          FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=vm-service-port=8181 \
+            FLUTTER_ENGINE_SWITCH_2=enable-service-port-fallback \
+            timeout 120 dbus-run-session -- xvfb-run -a $B/vommet > smoke.log 2>&1 &
+          url=""
+          for i in $(seq 90); do
+            url=$(grep -o 'http://127\.0\.0\.1:[0-9]*/[^ ]*' smoke.log | head -1 || true)
+            [ -n "$url" ] && break; sleep 1
+          done
+          echo "stdout/stderr head:"; head -40 smoke.log
+          [ -n "$url" ] || { echo "::error title=vm service::no VM service URL printed"; exit 1; }
+          echo "VM service URL: $url"
+          case $url in http://127.0.0.1:8181/*) echo "pinned port OK";; *) echo "::warning::port not 8181: $url";; esac
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${url}getVersion" || true)
+          echo "getVersion -> HTTP $code"
+          pkill -f "$B/vommet" || true
+
+      - name: Package (reproducible tar)
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH/build/linux/${{ matrix.arch }}/profile
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' -czf "$GITHUB_WORKSPACE/$NAME" bundle
+          cd "$GITHUB_WORKSPACE"
+          sha256sum "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: profile-linux-${{ matrix.arch }}
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  release:
+    needs: linux-profile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: profile-*
+          merge-multiple: true
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.linux-profile.outputs.tag }}
+        run: |
+          set -euo pipefail
+          files=(vommet-*)
+          ls -la "${files[@]}"
+          for f in vommet-*.sha256; do sha256sum -c "$f"; done
+          gh release create "profile-${TAG}-${GITHUB_RUN_NUMBER}" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Profile build of ${TAG} (run ${GITHUB_RUN_NUMBER})" \
+            --notes "Flutter profile-mode Linux build of the Vommet tester release ${TAG}, for DevTools profiling. Releases: https://nether.codes/nether/vommet/releases"
