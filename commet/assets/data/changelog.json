@@ -1,0 +1,1328 @@
+{
+  "$comment": "Vommet's \"What's new\" list, shown after an update (every entry newer than the build the user last opened) and under Settings › About › What's New. The sync session adds ONE entry at the TOP when it cuts a testing build: \"date\" = the cut time in UTC (ISO 8601, e.g. 2026-10-07T21:40:00Z), \"changes\" = one short sentence per change testers can notice, in plain language (what changed for them, not how). Leave out internal-only changes (CI, refactors, tests). Newest entry first.",
+  "entries": [
+    {
+      "date": "2026-10-25T15:50:00Z",
+      "changes": [
+        "Translate messages on this device: a Translate button under messages in other languages shows the translation below the original (models download once after you confirm; choose your language and delete models in Settings > App > Translation).",
+        "Twelve experiments are now regular features, and Noise suppression, Automatic gain control, Newest unread DMs first, Discord-style layout, Sliding sync, Secure messaging setup and Show deleted messages moved from Experiments to ordinary settings (your choices carry over). New Home is now on for everyone; you can still switch it off.",
+        "New Home: pick a tab icon from hundreds of searchable icons, an emoji (including your custom emoji), or upload your own picture.",
+        "Badges now come in three kinds: a dot for unread rooms, a gray number for silent notifications and a red number for noisy ones (mentions, keywords, and messages whose notification rule plays a sound). Home, People and space numbers count messages.",
+        "Several pictures sent as one reply now show as one picture mosaic under a single reply quote, with the text sent with them following without repeating the quote.",
+        "Voice messages can now be transcribed on Android too, on the phone itself (the audio never leaves it)."
+      ]
+    },
+    {
+      "date": "2026-10-25T13:54:00Z",
+      "changes": [
+        "Deleting a message now removes all of it with one confirmation: every picture of a picture group, and the files and text you sent together (for messages sent from now on). A single picture's own menu still deletes just that picture.",
+        "The picture viewer's thumbnail strip now fills itself with older pictures, zooming in hides the room behind the viewer so the picture can fill the screen, and on phones you can swipe a picture or video up or down to close it.",
+        "Edit picture can now zoom in and out and go full screen for precise work, and the Redact tool lists Pixelate, Blur and Color, where Color lets you pick the box color.",
+        "The + under the spaces column can now create a normal room (text chat, voice chat, photo album, calendar) as well as a space.",
+        "The message menu's room-wide pin options now read \"Pin for everyone\" and \"Unpin for everyone\", so they're easy to tell apart from \"Pin for me\".",
+        "With \"Read state per thread\" on, reading new replies in an open thread no longer leaves an unread marker on the room and its space.",
+        "On desktop, with \"Autofocus Message Input\" on, the message box is ready to type in again when you come back to the Vommet window.",
+        "More things show the hand cursor on hover: settings radio and checkbox rows, tabs, segmented buttons and thread cards in the chat; the call button shows the arrow while you can't call.",
+        "On phones the emoji and sticker pack list is now a bar you swipe sideways, instead of a column on the left.",
+        "Long sticker pack names in pack settings are cut short so the row's buttons stay on screen.",
+        "On phones, the \"Help on right-click\" guide menu on empty parts of the app now needs a two-finger press and hold, so it no longer pops up when a finger rests on the chat.",
+        "On Android, a \"New message\" notification for a message that couldn't be decrypted yet now changes into the real message once it decrypts, and notifications for rooms you've read on another device now go away by themselves.",
+        "On macOS, Update in the new-version bar can now save the download to your Downloads folder (it failed before).",
+        "Settings › App icon no longer says the icon is used for your launcher and app menu in the Flatpak and on Windows, where that can't change.",
+        "On touch screens, long-pressing a link now shows a highlight that spreads from your finger across the link and fills it as the press gets close to copying.",
+        "New --start-in-tray launch option for Linux and Windows (e.g. for autostart): Vommet starts hidden in the tray with no window or splash screen, even with Close to tray off; launching it again opens the window.",
+        "iOS: saving a theme in the theme editor no longer shows a \"File system watching is not supported\" error.",
+        "Links in someone's status message on their profile can now be tapped.",
+        "Saving an edit without changing the text no longer marks the message \"Edited\".",
+        "A room's menu now shows \"Tags…\" near the top, where you set Favorite and Low priority; the separate \"Set as Favorite\" item is gone.",
+        "When adding an existing room to a space, a \"Not in any space\" filter shows only rooms that aren't in any of your spaces yet.",
+        "Add contact (New Home People) and Add friend no longer show a person and then drop them while you type their full Matrix ID.",
+        "With New Home on, right-click a one-to-one DM in the DM list, or its title at the top of the chat, to add the person as a contact.",
+        "A DM request you accept before anything was said now goes to the top of your DM list.",
+        "The \"all pinned messages\" button on the pinned message bar now closes the pinned messages panel when you click it again.",
+        "Copying a single selected message no longer puts the sender's name in front of its text.",
+        "\"Jump to latest\" now reaches the newest message in one click after you scroll far back by hand."
+      ]
+    },
+    {
+      "date": "2026-10-24T19:18:00Z",
+      "changes": [
+        "Settings › Appearance › App icon now has one choice for everywhere — the Rainbow V (the new default) or the original — including your launcher, home screen or Dock, and \"Show all options\" lets you pick per place or upload your own image.",
+        "More clickable things show the hand cursor on desktop: emoji reactions, attachments, call panels, space folders, the message menu, New Home cards, People, the Media tab, threads, forwarding, message selection, settings pages and more.",
+        "On phones, long-press a link in a message to copy it.",
+        "Fewer wasted key backup requests: a message key the backup doesn't have is no longer asked for again by every undecryptable message.",
+        "New Home: the Overview uses much less memory on big accounts (only the rooms on screen are built).",
+        "Messaging a contact with several accounts now opens your existing DM from whichever of your accounts has it, and says so when a new DM can't be started.",
+        "On iPhone and iPad, matrix: links now open in Vommet."
+      ]
+    },
+    {
+      "date": "2026-10-24T15:20:00Z",
+      "changes": [
+        "On phones, picking another Home tab now switches the side list to that tab instead of jumping to its main page; swipe to see the page, or tap the tab again.",
+        "Home tabs can hold several views, shown as a bar you tap or swipe; People now opens on Contacts with Invites (with its count) and Blocked as views, there's a new Direct messages full-size card, and you can remove every tab (Home then offers Customize).",
+        "Customize Home: the Side list | Views switch lists a tab's views — add one (Direct messages, Contacts, Invites, Blocked, People, Rooms, or a view of cards), drag to reorder, rename or remove; \"Whole pages\" is now \"Full-size cards\".",
+        "New Home: the Tag and All my tags cards are now one Tags card that shows all your tags or the ones you pick, as a section per tag or one list, with a name of your own.",
+        "New Home: a Live calls card shows every room with a call going on, who's in it and for how long, with a Join button (add it from the Card library).",
+        "New Home: a Text card holds your own words with Markdown, images and up to three buttons that open a link, a room or a Vommet screen (add it from the Card library).",
+        "Canceling a direct-message invite you sent from People › Invites works again; for a group DM where that isn't possible, Vommet now says why.",
+        "The People button's badge now shows unread direct messages (it stayed empty because of an error).",
+        "Settings and Room Settings work better in narrow windows: the tab you're on stays open when the window shrinks, the tab list turns into a row of icons down the side, and in very narrow windows the tab's header shows \"Settings ›\" so you know where the back arrow goes.",
+        "Notification settings now show on Windows, macOS, iOS and web too, so you can set your account's notification defaults and the level new rooms get from any device.",
+        "Notifications now go away once a chat is read, including when you read it on another device (Linux, Android, Windows).",
+        "On Android, notifications for chats you read on another device now close even while the app is closed (one account signed in).",
+        "On Android 12 and later, Settings › General shows whether matrix.to links open in Vommet and takes you to Android's \"Open by default\" page to turn it on; macOS builds now open matrix: links too.",
+        "A message link for a room on another account now jumps to the message after you switch accounts.",
+        "Link previews that the sender's app attaches to a message (as Beeper does) now show without asking your homeserver for the link, so they also work in encrypted chats; the first one in each chat asks before showing, since the sender writes it.",
+        "When you type a link, Vommet now makes its preview on your device and attaches it to the message (encrypted in encrypted chats), so the people you send it to see the preview without anyone asking their homeserver for the link; tap × above the message box to send without it.",
+        "Buttons, toggles, room and DM entries, settings and menus show the hand cursor on desktop when you can click them.",
+        "The room's Media tab and room banners load faster, and scrolling through thumbnails is smoother.",
+        "While you pinch the Media grid, the number of thumbnails per row now changes live to what it will settle on.",
+        "Zooming in on a picture in the media viewer now smoothly fades out the counter, arrows and thumbnail strip, and brings them back once it's back to its original size."
+      ]
+    },
+    {
+      "date": "2026-10-24T05:19:00Z",
+      "changes": [
+        "Messages have a \"Copy message link\" option that copies a link Element also opens, and opening a link to a message jumps to it (no more offer to join a room you're already in).",
+        "Settings › About has a Check for updates button: it shows the new-version bar when a release is out, or tells you you're on the latest version.",
+        "Browse rooms now shows each room's topic under its name, and joining a space's room from the room list shows its topic and member count before you confirm.",
+        "On the Overview, the Active Now card now shows people in one row you swipe sideways, with the most recent activity first.",
+        "Fixed \"Select text\" in the message menu doing nothing on Android."
+      ]
+    },
+    {
+      "date": "2026-10-24T02:56:00Z",
+      "changes": [
+        "A room the server dropped you from without telling the app (for example one a server admin deleted) now says \"You're no longer in this room.\" in place of the message box, with Rejoin and Forget, instead of letting every message fail silently.",
+        "Large accounts start much more smoothly: the app no longer floods the server with profile, member, thumbnail and message-history requests at once, and the search index now waits for the start to finish and paces itself."
+      ]
+    },
+    {
+      "date": "2026-10-24T01:57:00Z",
+      "changes": [
+        "Long text reactions no longer push the emoji and the add-reaction button out of the message menu's reaction row.",
+        "With a thread open, a dropped file is attached only to the composer of the area you drop it on, not to both.",
+        "Swipe to reply now works on phones: swiping a message leftwards from near the right edge of the screen starts a reply even on short messages.",
+        "Room Settings has a new Media page showing all of a room's pictures and videos, and resizing Media thumbnails with a pinch or Ctrl + mouse wheel is now animated, with the grid zooming live under your fingers.",
+        "Forwarding from the Select bar now waits above the message box like other forwards, so you can check it, show or hide the sender's name, and confirm; forwards now leave out the sender's name by default and remember your last choice.",
+        "The tray and taskbar badge now counts chats with notifications (each chat once, like Element), in-app badges count up to 99 instead of stopping at 9+, and the People button shows unread direct messages.",
+        "In the chat bubble layout, DMs show avatars and names again, the same way as group rooms.",
+        "On phones, a message's menu has \"Select text\" so you can select and copy just part of the message.",
+        "On Windows and Linux the media viewer has a full-screen button next to the zoom buttons: it shows only the picture or video across the whole screen. Click a picture or press Esc to go back; on a video use the X in the corner or Esc.",
+        "Desktop notifications no longer go off for messages (often pictures) that merely contain your name without mentioning you, matching the server and other apps.",
+        "Pinned rooms and DMs on the sidebar now load sharp icons too instead of staying slightly blurry on phones.",
+        "\"Close to tray\" is now on by default on Windows and Linux: closing the window keeps Vommet running in the tray (turn it off in Settings › App › Window behaviour). Without a tray, closing still quits.",
+        "With two or more accounts, Customize Home lets you pick which account your Home layout is saved to, so all your devices can share the same Home.",
+        "On desktop you can now click and drag the picture viewer's thumbnail strip with the mouse; the mouse wheel still works too."
+      ]
+    },
+    {
+      "date": "2026-10-23T20:58:00Z",
+      "changes": [
+        "Flatpak updates now show the command that installs them, so updating works on desktops without a software center.",
+        "Messages that arrived while the app was away no longer go missing under sliding sync: the room fetches them when you open it."
+      ]
+    },
+    {
+      "date": "2026-10-23T18:53:00Z",
+      "changes": [
+        "Friends and New Home contacts can now link several Matrix accounts of one person into one contact (⋮ › Link another account), with one combined status and a choice of account when you message them.",
+        "Settings → Appearance has a \"Sticker size\" slider (64–256 px) for how big stickers appear in the timeline; GIFs keep their size.",
+        "On iOS, drag your finger down onto the keyboard to hide it while chatting; scrolling the chat works as before.",
+        "On phones, swipe a message from the right edge to the left to reply to it; swipes that start further in still open the side panels.",
+        "With New Home on, Overview starts with Favorites and Direct messages beside Invites, Recent activity and Standalone rooms (also after Reset, and for anyone who never changed it); the Customize button sits at the right edge of the header; and Customize Home's Side list / Main page switch no longer gets stuck after changing tabs.",
+        "With New Home on, Customize Home has an Undo button (and Ctrl+Z) that takes back your changes one at a time, back to how Home was when you opened it.",
+        "Space icons on the sidebar now load sharp on their own instead of staying slightly blurry until you open the space.",
+        "Opening someone's profile is much faster: it shows right away and fills in their pictures and colors as they arrive."
+      ]
+    },
+    {
+      "date": "2026-10-23T15:48:00Z",
+      "changes": [
+        "On iPhone and iPad, the + button now offers Photo Library, Take Photo, Record Video and Choose File instead of only opening Files.",
+        "Android: the status bar icons now stay dark on the light theme, also after the theme follows a system light/dark switch.",
+        "Pressing Enter in the password field now signs you in.",
+        "Images and files sent while replying now go out as replies.",
+        "Right-clicking a message in an open thread now always opens its menu.",
+        "Rooms now remember where you scrolled to: switch away from a room you scrolled up in and come back, and it opens at the same messages instead of the newest ones (until the app restarts).",
+        "Making a sidebar folder by holding one space over another is easier: the spot that makes a folder is bigger, so you don't have to hit the exact middle.",
+        "A DM's Profile tab now has the Add contact button, like the profile card.",
+        "The side panel's Media and Files tabs now show a header for each month, like the Links tab.",
+        "Media and files: an expand button lets the Media, Files and Links tabs fill the window on desktop, and Ctrl + mouse wheel (or a pinch) makes the Media thumbnails bigger or smaller.",
+        "In a narrow window, settings now show the list of pages full-width and open each page full-width with a back arrow.",
+        "In the \"One list\" chat list, voice rooms now move up only when someone sends a message or joins the call, not on background call activity.",
+        "The theme editor's \"Selected room\" color now also highlights the open chat in the Home column's lists.",
+        "Set a notification level on all the group rooms you're already in at once (Settings → Notifications → \"Apply to rooms I'm in now…\"), and Discord-style space notifications: right-click a space → Notifications sets a level for its rooms, and rooms you join in it later follow it.",
+        "Windows: Vommet can now keep an icon in the system tray, and \"Close to tray\" hides the window there instead of quitting (Settings › General › Window behavior).",
+        "With New Home on, the side list's section headers (Favourites, Recent activity, Direct messages) show a red number only for mentions and keywords, and a red dot for a new direct message, instead of counting every unread message.",
+        "With New Home on, a Home tab's sidebar button (like People) stays highlighted while you have a room open from its list, instead of the highlight jumping to Home.",
+        "With New Home on, the narrow icon-only sidebar now shows the same Home tabs and rooms as the full one, following the tab you picked.",
+        "Picture gallery experiment: a strip of thumbnails under the picture viewer; tap one, use the mouse wheel over it, or drag it on phones to move between pictures.",
+        "In the Telegram-style chat list, right-clicking a folder tab that holds one space now offers Browse rooms, to see and join the space's other rooms."
+      ]
+    },
+    {
+      "date": "2026-10-23T03:09:00Z",
+      "changes": [
+        "The new-version bar can now download the right update for your install, check its signature and open the installer (or swap in a new AppImage); Nix and Guix installs get their update command. Settings › General › New releases: Off, Notify and ask, or Download automatically.",
+        "The first \"Still have your recovery key?\" check-in now comes 2 weeks after setup instead of 3 days, and a newly signed-in device (approved by emoji or with your key) isn't asked for 2 weeks."
+      ]
+    },
+    {
+      "date": "2026-10-23T01:58:00Z",
+      "changes": [
+        "Search now opens right in the chat: matches show as you type, tap one to jump to it with your search words highlighted, and step through the rest with the arrows.",
+        "Search in encrypted chats is now much faster: Vommet builds a search index on your device in the background (Settings › Privacy › Search: Off, Wi-Fi only or Always), and older messages are only ever fetched once.",
+        "A DM's side panel now has tabs at the top: Profile (with counts of the photos, GIFs, files, voice messages and links shared in the chat), Media, Files, a new Links tab, Threads, Pins and Widgets; Media can be narrowed to Photos, Videos or GIFs and Files to Files or Voice, with voice messages playing right in the list.",
+        "The theme editor's \"Selected room\" color now also highlights the open chat in the \"One list\" chat list."
+      ]
+    },
+    {
+      "date": "2026-10-23T00:04:00Z",
+      "changes": [
+        "Room tags: tag rooms from their menu (Tags…), and with New Home add any tag, or All my tags, as a card or side list section on any Home tab; tags are shared with other Matrix apps such as Nheko.",
+        "New installs now make new rooms unencrypted unless you turn encryption on; existing installs keep encrypting new rooms.",
+        "Rooms you left and joined again open normally instead of showing \"Error loading timeline\".",
+        "Reloading the web app on a big account no longer freezes for most of a minute while your contacts' device keys load.",
+        "Big accounts load rooms' member lists without a slowdown that grew with every room you're in.",
+        "Visible text now uses American spelling everywhere, e.g. \"Favorite this sticker\", the \"Favorites\" card and \"Verification canceled\"."
+      ]
+    },
+    {
+      "date": "2026-10-22T20:25:00Z",
+      "changes": [
+        "With New Home on, Home is now a set of tabs: Overview (favourites and recent activity beside mentions, invites and who's active), People and Rooms, each with its own side list of collapsible sections and its own main page, saved to your account.",
+        "Customize Home lets you add, rename, reorder, duplicate and remove Home tabs, pick each tab's side list sections and main page cards, start a new tab empty, as a copy or from a removed default, and reset Home to default; first-time tips explain how it works.",
+        "Every Home tab can have its own sidebar button (\"Show in sidebar\" or the pin in Customize Home; right-click to hide it), with the icon you picked; the People and Rooms shortcut settings moved into Customize Home.",
+        "With New Home on, the sidebar's Home button always opens your first Home tab and is highlighted while you're in Home, and the Rooms button opens Rooms on \"All\", so search finds every room and space.",
+        "Settings › Appearance and first-time setup let you pick the original icon or a new rainbow V for the window and tray icon and, separately, for the splash screen, and make the tray icon black or white; the window and tray now default to the rainbow V.",
+        "Send-as patterns: send from another account with a prefix, a suffix or around the message like (this), with several patterns per account (Settings › Manage Accounts › account menu).",
+        "When your computer goes to sleep (macOS and Linux), Vommet now leaves the call you're in, so others don't keep seeing you there.",
+        "Android: message notifications have Reply and Mark as read buttons, and tapping a notification that arrived while Vommet was closed opens that chat again.",
+        "On Android you can now turn off in-app notification banners in Settings › Notifications to get system notifications instead.",
+        "On phones, direct messages now show the call button in the top bar, so you don't have to open the member drawer to call.",
+        "Ctrl+PgUp and Ctrl+PgDown now switch to the previous or next room, like Alt+Up and Alt+Down.",
+        "Searching an unencrypted room with only from:@user now lists that person's messages instead of \"no results\".",
+        "Settings: the picked option in two- and three-option buttons (Layout, theme mode, title bar, Redacted mode) is now filled with the theme's accent colour, so it shows on OLED themes too.",
+        "Tapping round buttons (like the settings back button) no longer flashes a solid white circle over the icon on the Amoled theme.",
+        "On the web version, the theme editor can now save and export custom themes (export downloads a .zip), and saved or imported custom themes show up and apply there.",
+        "Web: after sending a pasted image or other attachment you can type in the message box again right away.",
+        "Signing in on a big account no longer freezes the app while your message history keys are restored."
+      ]
+    },
+    {
+      "date": "2026-10-22T17:25:00Z",
+      "changes": [
+        "New installs now start with New Home, the People and \"Standalone rooms\" buttons and GIF search turned on (existing installs keep their settings); first-run setup explains the Home shortcuts and the encryption choice more clearly, and \"rooms outside spaces\" is now called \"Standalone rooms\" everywhere.",
+        "New Home's Overview now uses the full window width, has a visible \"Customize\" button in its header, and ends with an \"Add a card\" tile.",
+        "The New Home Rooms page now uses the full window width, wraps its filter chips instead of cutting them off, lists every room in each section (no more \"Show N more\"), and remembers which sections you collapsed.",
+        "With New Home on, someone's profile card now has an \"Add contact\" button under Message (with Undo), and for people already in your contacts it becomes a \"Contact\" menu to remove them or open People.",
+        "On Linux and Windows, a new room invite now pops up a \"Room Invite\" notification (or an in-app banner while Vommet is focused, if in-app banners are on), and the Home icon's badge counts invites waiting for you.",
+        "Hovering a chat or room name that's cut off in the left panel now shows the full name; names that fit show nothing.",
+        "With chat bubbles on, a thread under your own message now sits under its bubble on the right instead of on the far left.",
+        "Spoiler pictures and videos blur again when you leave the room and come back, like Telegram; turn it off in Settings › General › Media › \"Hide spoilers again\".",
+        "After you accept a verification request, both devices now say they're connecting instead of asking you to accept again.",
+        "Renaming a session that's offline no longer makes it show \"Active now\" in Settings › Sessions.",
+        "The welcome screen no longer briefly shows \"Join #vommet:nether.im\" to people who are already in the room; the offer only fades in once it's clear you're not a member."
+      ]
+    },
+    {
+      "date": "2026-10-22T15:24:00Z",
+      "changes": [
+        "Deleting several selected messages now asks \"Delete for me\" or \"Delete for everyone\"; \"for me\" hides them on all your Vommet devices, with Undo.",
+        "New setting in Notifications: get notified when someone reacts to one of your messages (off by default, skips muted rooms).",
+        "With rooms from spaces shown as separate chats, a room's menu (and a single-space folder's tab) now has Space settings.",
+        "Alt+Up/Down and Alt+Shift+Up/Down now switch chats in the Telegram-style chat list too, stepping into a space's rooms and back out.",
+        "New Home on phones: Overview, People and Rooms now open like a chat, so you can swipe back to the list instead of pressing back."
+      ]
+    },
+    {
+      "date": "2026-10-22T09:13:00Z",
+      "changes": [
+        "Direct messages show the chat's topic (for example the game a bridged Steam friend is playing) as a small line under their name in the chat lists.",
+        "Selecting several messages now works inside threads too, with its own selection bar; a thread's selection is separate from the room's and clears when the thread closes.",
+        "New Home (experiment) gets a People page for contacts, invites and blocked people, an optional People button in the sidebar, and a Rooms page that searches every room and space with filters for voice rooms, photo albums, calendars and unread.",
+        "New Home (experiment) lets you customize Overview: drag cards in from a Card library (Unread, Mentions & highlights, Invites, Active Now, Low priority, a Space, Contacts, and more Recent activity cards), reorder or remove them, and restore the defaults, with a reorder list on phones."
+      ]
+    },
+    {
+      "date": "2026-10-22T07:19:00Z",
+      "changes": [
+        "On phones, one swipe from the room list back to Home now works instead of snapping back to the room list; quick flicks between panels count too.",
+        "Selecting several messages: drags can start beside a message, dragging back unticks messages, on touch a long press can be dragged on to tick more (with auto-scroll), and in the desktop layout on a touch screen a tap opens the message menu.",
+        "Editing a message no longer turns links with their own text into plain text.",
+        "Messages you send from another account with an account-switch prefix now show \"Sending as …\" above the message box until they appear in the timeline, with Retry if sending fails.",
+        "Connection lost and screen shares starting or stopping now play a sound by default (the leave and join sounds); you can still set each to None in Settings › Sounds.",
+        "The hang-up button in the call view no longer looks greyed out and now reacts when you hover over or press it.",
+        "Settings › Calls › Call Connection lets you choose your own fallback STUN server (default stun:turn.matrix.org, with a reset button).",
+        "The theme editor has a new \"Selected room\" colour for the open room's highlight in the room list.",
+        "The \"New messages\" divider now uses your theme's accent colour, so custom themes change it too.",
+        "With chat bubbles on a light theme, your own messages now use a softer light blue that keeps the time readable.",
+        "The web app no longer hangs on the splash screen when browser storage is full or limited (e.g. some private windows), and starts much faster with many rooms.",
+        "Messages sent while one of a recipient's devices couldn't be reached right away now reach that device with a later message, instead of never."
+      ]
+    },
+    {
+      "date": "2026-10-22T05:19:00Z",
+      "changes": [
+        "New Home (experiment): Overview, Friends and Rooms in the Home column, with customizable cards on Overview.",
+        "Widgets now work in the web app (web.vommet.app).",
+        "Messages you send right after signing in on a new device can now be read by everyone in the room, instead of showing \"Failed to decrypt\" for people the app hadn't found the devices of yet.",
+        "Vommet no longer keeps asking the server about people it can't look up, so rooms that mention them load with less network traffic.",
+        "The member list no longer downloads a big room's whole member list again every time you open the room.",
+        "Pictures that can't be loaded (deleted, or on an unreachable server) are no longer requested over and over.",
+        "Avatars and room or space icons set as SVG pictures now show up instead of just their letter."
+      ]
+    },
+    {
+      "date": "2026-10-22T03:00:00Z",
+      "changes": [
+        "Room topics no longer go missing from the room header in the web app until you reload."
+      ]
+    },
+    {
+      "date": "2026-10-21T22:55:00Z",
+      "changes": [
+        "Spaces you haven't arranged in Vommet now appear in the same order as in Element, and follow it when you reorder them there.",
+        "Vommet is ready a few seconds sooner after launch on slower computers."
+      ]
+    },
+    {
+      "date": "2026-10-21T21:10:00Z",
+      "changes": [
+        "Room and space Security settings now offer who can read history, Preview space (spaces), guest access and Ask to join; rooms that use Ask to join no longer show as Private.",
+        "Room and space Permissions now match Element: more permission rows, a Privileged users list where you can change or add roles, and a Banned users list with Unban.",
+        "Room settings now have per-room URL previews and a Leave button in General, an Advanced tab for everyone (also for spaces), and a Bridges tab when the room is bridged."
+      ]
+    },
+    {
+      "date": "2026-10-21T18:35:00Z",
+      "changes": [
+        "Recovery key check-ins are now shared by all your Vommet devices (pass on one and the others won't ask), worded for whether you chose a key, phrase or password, can read your key from a file, and can be turned off in Settings › Security (not recommended); after 3 \"Remind me later\"s in a row the check-in waits for an answer.",
+        "New widget: Luanti, a shared creative block world (opens in your browser; experiment).",
+        "Drawpile canvases now open on Nether's own Drawpile server, so a shared canvas is always ready to join instead of failing with \"Login error\".",
+        "Right-clicking the # button for rooms outside spaces now also offers \"What's a space?\".",
+        "Vommet catches up faster after launch on slower computers."
+      ]
+    },
+    {
+      "date": "2026-10-21T15:20:00Z",
+      "changes": [
+        "Messages that couldn't be decrypted now fix themselves once you verify this device or unlock your key backup, without \"Retry Decrypt\".",
+        "First-run setup's layout page now has a switch for the # \"Rooms outside spaces\" button in the sidebar (on for new users), so rooms that aren't in a space are easy to find."
+      ]
+    },
+    {
+      "date": "2026-10-21T07:40:00Z",
+      "changes": [
+        "Voice messages now record on Windows, and voice-message hints (like \"microphone unavailable\") show up on desktop.",
+        "New \"New rooms\" setting under Notifications: choose the notification level (for example Mentions & Keywords) that rooms and direct chats get when you join them.",
+        "The two \"rooms in sidebar\" settings now say which part of the sidebar they change, and the # button for rooms outside spaces is on for new users; right-click it (or long-press on mobile) to hide it.",
+        "Right-click (or press and hold) any GIF in a chat and pick \"Add to My GIFs\" to save it; your GIFs show in the GIF tab even when GIF search is off, and first-run setup now asks whether to turn GIF search on.",
+        "New Help and guides: right-click (or press and hold) almost anything and pick the question at the bottom of the menu, like \"What's a space?\", for a short guide with pictures; all guides plus a Getting started walkthrough are in Settings › Help and guides, and new installs get the walkthrough once after signing in.",
+        "New Settings › Appearance › Layout: pick Discord style (today's look), Telegram style (one chat list, bubbles, captions under pictures, narrower messages) or mix the options yourself. The Telegram-style chat list moved here from Experiments.",
+        "The recovery key check-in now says \"That's the one. Keep it safe.\" inside its own dialog (it closes by itself) instead of a message that often didn't show, and check-ins you keep passing come further apart: 30, then 90, then every 180 days.",
+        "Vommet shows its window sooner after launch, especially on slower computers and on accounts with many devices."
+      ]
+    },
+    {
+      "date": "2026-10-21T05:30:00Z",
+      "changes": [
+        "Your name and picture at the bottom left now update as soon as you change them in Edit profile, instead of after a restart.",
+        "Importing a sticker pack now asks whether to use it as stickers, emoji or both, with Stickers picked by default, so imported stickers stop turning up as emoji; the \"Emoticons\" settings tab is now \"Emoji & Stickers\".",
+        "Add friend now looks people up as you type, people you have DMs with first, and won't add a Matrix ID that doesn't exist."
+      ]
+    },
+    {
+      "date": "2026-10-21T04:00:00Z",
+      "changes": [
+        "On Linux, Drawpile now opens in Vommet's own widget window instead of failing there.",
+        "In a room's Media tab, the picture viewer's left and right arrows now follow the order of the thumbnails.",
+        "Fixed voice room participants briefly showing under other rooms in the sidebar after joining sub-spaces."
+      ]
+    },
+    {
+      "date": "2026-10-21T02:45:00Z",
+      "changes": [
+        "On Linux, the tray icon now shows a red badge with your unread count (Settings › Window behavior › \"Unread badge on tray icon\", on by default).",
+        "Captioned pictures sent as replies from bridges (WhatsApp and others) show their caption again.",
+        "Custom themes can now set their own colors for your chat bubbles and for other people's (Theme editor › Message bubbles); unset ones keep the automatic colors.",
+        "While selecting several messages on desktop, Ctrl+C copies them and the Delete key asks to delete them.",
+        "If you replaced your recovery key in an earlier test build, the old key's leftover copies of your secrets are removed the next time you enter your current key, so the old key really stops working.",
+        "If old copies of your secrets still wait for your current recovery key, the \"Still have your recovery key?\" check-in now comes at the next start instead of weeks later, so the cleanup can finish.",
+        "Restoring message history after sign-in is much faster.",
+        "Vommet does much less database work after each sync, so it stays responsive on slower computers."
+      ]
+    },
+    {
+      "date": "2026-10-20T23:30:00Z",
+      "changes": [
+        "In the Telegram-style chat list on desktop you can drag the list's edge to resize it (double-click resets it); the width is kept after a restart.",
+        "The Telegram-style chat list shows the unread dot again for new messages in rooms set to \"Mentions & keywords\" (and their spaces), even when they don't mention you.",
+        "The Friends tab now opens on All friends, listed online first, then friends whose presence isn't known, then offline.",
+        "On phones you can swipe the formatting row (Aa) to the right to close it, just like tapping Aa.",
+        "The locked Call button now says which room permission is missing (\"Join Call\") and where to change it (Room settings › Permissions).",
+        "The room list and home screen do much less work after each sync, so Vommet feels faster on slower computers.",
+        "Space and room avatars and banners no longer stay empty until you open the space or room (most visible in Firefox on the web).",
+        "On the web in Firefox, space avatars no longer show as black squares in the WebAssembly build, and space colours no longer log an error at startup."
+      ]
+    },
+    {
+      "date": "2026-10-20T21:30:00Z",
+      "changes": [
+        "Settings › Security is easier to read: your recovery key has its own row, \"Reset encryption\" is set apart and explained, and you can rename your sessions.",
+        "After you enter your recovery key or approve from another device, Vommet opens right away and restores older messages in the background.",
+        "On a slow device, the secure messaging setup now still asks after signing in, and \"Approve from another device\" no longer fails while the first sync is still loading.",
+        "When signing in through your browser, Vommet now shows the sign-in link to copy, plus \"Open again\" and \"Cancel\", instead of just spinning if the browser doesn't show up.",
+        "Switching rooms no longer gets slower the longer Vommet stays open: rooms you leave are now released instead of piling up in memory.",
+        "New opt-in experiment \"Friends tab\": Home gets a Friends tab with the people you add, who's online, Active Now (calls a friend is in) and suggestions from your DMs; your list is private.",
+        "A folded subspace in the room list now shows a headphones mark when people are in a call inside it (screen-share mark when someone is live)."
+      ]
+    },
+    {
+      "date": "2026-10-20T19:30:00Z",
+      "changes": [
+        "New in Settings › Security: \"Let people who join later read my messages\" (also per room in Room settings › Security). People you invite now also get your own messages from before Vommet marked keys as shareable, when the room's history was visible to new members back then.",
+        "Settings › Developer Utils has a frame counter: frames drawn per minute and, on Linux, how often the window was redrawn, to help track down idle CPU use.",
+        "The Docked widgets experiment now works on macOS too: widgets dock in the room or call, pop out to their own window without reloading, dock back, and a video's full screen button goes full screen.",
+        "Fresh installs now start with a short, skippable setup: pick your language, a Discord-like or Telegram-like layout, a theme, Cozy or Compact message spacing, and whether new rooms are encrypted; run it again from Settings › General.",
+        "The verification dialog has a clear screen for every step, closes itself with a short note when another of your devices answers the request (instead of showing \"KeyVerificationState.error\"), and the recovery-key step and number comparison now work."
+      ]
+    },
+    {
+      "date": "2026-10-20T17:30:00Z",
+      "changes": [
+        "Direct messages in chat lists now show an amber icon when they aren't encrypted and a red one when the other person's identity changed, and calls that aren't encrypted keep a short note above them for the whole call.",
+        "When creating a room or space, or upgrading a room to version 12, you can name co-owners who get the same full power as you.",
+        "The Docked widgets experiment now works on Windows too: widgets dock in the room or call, pop out to their own window without reloading, dock back, and go properly full screen.",
+        "Docked widgets (Linux experiment): a video's full screen button now really goes full screen, and a popped out widget no longer shows a black window.",
+        "macOS: a room's widgets open again (in the app, or in your browser from the widget menu).",
+        "Linux: text you select in a chat or the message box is copied to the primary selection, and a middle-click in the message box pastes it, like in other Linux apps.",
+        "\"Replace my recovery key\" now really retires the old key: it can no longer unlock your cross-signing and backup keys.",
+        "Messages you send now reach bridge bots (e.g. Telegram bridges) in encrypted bridged rooms, even when Vommet's copy of the bot's keys was out of date.",
+        "People you invite to an encrypted room get more of its earlier messages: keys their senders marked as shareable no longer lose that mark when this device gets an earlier copy of them.",
+        "Desktop notifications now work right after signing in, without restarting the app.",
+        "Videos posted in rooms on servers without HTTP range support (nether.im) play again instead of showing a black box.",
+        "Animated stickers, emotes and GIFs keep playing on Android while a chat bubble or split screen has focus, and turning off \"Pause animations when unfocused\" restarts paused ones at once.",
+        "The welcome screen no longer offers to join #vommet:nether.im when you're already in it.",
+        "The picture button in the Add File dialog is now called \"Edit picture\", since it also lets you draw on and redact the picture, not just crop or rotate it."
+      ]
+    },
+    {
+      "date": "2026-10-20T06:55:00Z",
+      "changes": [
+        "New experiment on Linux (Settings > Experiments > Docked widgets, off by default): widgets open inside Vommet's window, beside the room or above a voice room's call, and can be popped out into their own window and docked back without reloading."
+      ]
+    },
+    {
+      "date": "2026-10-20T02:48:00Z",
+      "changes": [
+        "Key files exported from Vommet import into Element with all their keys.",
+        "Messages you send decrypt in Element again in rooms where they had stopped (an older message key with a bad shared-history mark is replaced), and your key backup is repaired for Element."
+      ]
+    },
+    {
+      "date": "2026-10-20T01:12:00Z",
+      "changes": [
+        "New to Matrix? The login screen now has \"Create an account\": a short tutorial, the servers nether.wiki recommends, and sign-up right in the app where the server allows it.",
+        "Your own chat bubbles are now readable on the AMOLED theme.",
+        "Turning Redacted mode on or off can no longer leave the app as a grey, unresponsive screen.",
+        "Redacted mode now also covers link previews and thread summaries (the card under a thread and the threads list)."
+      ]
+    },
+    {
+      "date": "2026-10-19T23:13:00Z",
+      "changes": [
+        "Opening a room from a notification or a link now opens its top-level space instead of the subspace it sits in, and stays in the space you have open if the room is in it.",
+        "The image viewer has zoom buttons with the zoom level under the picture on desktop; click the picture to zoom in around the pointer (double tap on phones), and + / − / 0 on the keyboard.",
+        "The \"show room pictures only\" button no longer sits on the space banner: it's in the space menu now, Ctrl+Shift+B (Cmd+Shift+B on Mac) toggles it, and dragging the room list's edge far enough narrow collapses it (drag the collapsed edge back out for names).",
+        "Alt+Up and Alt+Down switch to the previous or next room in the room list, and Alt+Shift+Up or Alt+Shift+Down jump to the previous or next room with unread messages.",
+        "Clicking the \"connecting\", \"disconnected\" or \"connected\" notice in the corner now hides it, so it no longer covers the controls under it; a dismissed notice stays hidden until the connection works again.",
+        "Web: signing in no longer hangs in Firefox while it asks about persistent storage.",
+        "Web: attaching an image works in the WebAssembly build.",
+        "Web: images, stickers and files from others load, and uploads go through, in the WebAssembly build."
+      ]
+    },
+    {
+      "date": "2026-10-19T21:13:00Z",
+      "changes": [
+        "Web: Vommet now runs in the browser as WebAssembly (with an automatic fallback for older browsers), loads its fonts from its own site instead of Google, and images can be pasted into the composer.",
+        "The web app's first load is about half the size: it no longer downloads a 24 MB emoji font up front.",
+        "Chat bubbles: on wide windows all bubbles now sit on the left, yours with your avatar and name.",
+        "With \"Open at last read message\" on, rooms whose last read message can't be loaded now open at the latest messages instead of failing with \"Error loading timeline\".",
+        "On Linux, opening or focusing a chat now closes its desktop notifications.",
+        "On desktop, scrolling over any section of the settings sidebar now scrolls the whole sidebar.",
+        "The text you type in the message box now follows the system \"Bold text\" setting too.",
+        "The Open Link prompt can now always open links to a domain you trust; Settings › Privacy lists trusted domains so you can remove them.",
+        "New in Settings › Appearance: \"Sidebar icon size\", a slider that makes the space sidebar's icons smaller (40 px is Discord's size) or bigger; the default look is unchanged.",
+        "On macOS, signing in with your homeserver's login page now opens your default browser instead of always Safari.",
+        "Redacted mode now also hides names and text in the pinned message bar and the names in join, leave and profile-change lines.",
+        "On a Mac, pasting a link copied in Safari pastes the link again instead of showing \"Couldn't attach file\"."
+      ]
+    },
+    {
+      "date": "2026-10-19T19:09:00Z",
+      "changes": [
+        "Watch Together and other widgets that sign you in now work in Vommet's own widget window on Linux and Windows instead of waiting forever on \"Confirming who you are\".",
+        "The separate widget window is now titled \"Vommet | <widget name>\" (for example \"Vommet | Watch Together\") instead of showing \"commet | Widget Runner\" in quotes.",
+        "The button that shrinks the room list to room pictures now sits in the list's top row (next to the space name or the search box), and the edges you can drag to resize the room and member lists light up when you point at them.",
+        "In a narrow desktop window the panel toggle now opens the member list (with its Widgets, Pins and other tabs) over the chat instead of doing nothing, and its arrow shows whether the panel is open.",
+        "With Encryption markers on, a room's topic is no longer cut in half at large font sizes; it moves onto the name's line when two lines don't fit.",
+        "Older messages restored from key backup keep decrypting after you reload Vommet for Web or restart the app.",
+        "A device you just signed in on can be approved from another device (including Element) even on big accounts, and the setup screen and Settings › Security notice when another device confirms it."
+      ]
+    },
+    {
+      "date": "2026-10-19T17:10:00Z",
+      "changes": [
+        "Element users can read the messages you send in rooms with shared history again (testing builds since the 16th sent message keys Element rejected)."
+      ]
+    },
+    {
+      "date": "2026-10-19T15:15:00Z",
+      "changes": [
+        "The \"disconnected\" badge no longer flashes for a sync that fails once and recovers; it shows after 20 seconds without a working connection."
+      ]
+    },
+    {
+      "date": "2026-10-19T05:55:00Z",
+      "changes": [
+        "On Linux, widgets open in Vommet's own window instead of needing Chromium (Settings › General › Widgets, or a widget's menu, can send them to your browser), the Flatpak no longer asks for \"Arbitrary Permissions\", and \"Open on a nearby device\" explains how it works.",
+        "The Home side pane now lists rooms that aren't in any space under \"Rooms\", below Direct Messages, so they stay in reach while a chat is open; the search field filters them by name.",
+        "The room list marks the open room again after switching spaces, and the open thread's first message is shaded in the chat so you can tell which thread is open.",
+        "Blocking someone now also removes their last message from room previews right away.",
+        "The Timestamps experiment's description no longer calls $[…] \"Sable\" syntax; it's described as the short form of <t:…>.",
+        "Theme editor: the \"Space rail\" color is now called \"Popups\", since it colors tooltips, menus and link previews; saved themes are unchanged.",
+        "On Android, swiping Vommet away from recent apps during a call now hangs up, so you no longer stay shown in the call.",
+        "When an account gets signed out (for example from another device), Vommet now shows an \"Account signed out\" alert that takes you to Settings to remove it or sign in again, instead of a silent \"Error\"."
+      ]
+    },
+    {
+      "date": "2026-10-19T03:00:00Z",
+      "changes": [
+        "Telegram-style chat list: a new option shows every room from your spaces as its own chat, newest first, and folders can now hold a space's rooms.",
+        "On phones, the formatting row (Aa) now hides when you tap away from the message box or close the keyboard, and comes back when you return to typing.",
+        "Voting in a poll no longer adds \"Unknown Event Type\" rows to the chat; votes only count towards the poll."
+      ]
+    },
+    {
+      "date": "2026-10-19T01:00:00Z",
+      "changes": [
+        "New in Settings › Appearance: \"Chat bubbles\" shows messages as bubbles, yours on the right and everyone else's on the left (off by default).",
+        "On desktop the chat keeps its room as you narrow the window: the member list hides first, then the room list shrinks to room pictures, then the side column hides behind a menu button in the room header; a button at the foot of the room list collapses it by hand.",
+        "Tap a sticker in a chat to see the rest of its pack and add the pack to your own packs, a room, a space or a sticker room.",
+        "Select several messages: on a computer, drag from one message into another; on a phone, long-press a message to select it and tap a message for its menu.",
+        "Right-click a space's icon in the sidebar, or long-press it and let go, to open the space menu; spaces and rooms in a folder get their full menu with \"Remove from folder\".",
+        "Widgets work in voice rooms again (watch together while you talk); widgets that would join the call themselves are kept out of it.",
+        "Inviting someone straight into an encrypted room now says whether its earlier messages go along, and lets you untick \"Share earlier messages\".",
+        "Android, iOS and macOS: long-press (or right-click) an enlarged image and pick \"Share\" to send it to another app.",
+        "Pictures in chat are no longer blurry when the sender attached a small preview: the full-size picture loads when the preview is too small for the screen.",
+        "Sending a file over your homeserver's upload limit now tells you the file's size and the limit, and Settings › Manage Accounts shows each account's max upload size.",
+        "Page Up and Page Down now scroll a room's timeline, and Home and End jump to the oldest loaded and the newest message.",
+        "Typing an emoji shortcode like :sob: now sends the emoji, even in the middle of a word, and custom emoji no longer get spaces forced around them.",
+        "Ctrl+Enter in the message box now adds a new line, like Shift+Enter, instead of sending.",
+        "The compact message hover bar now has Edit on your own messages.",
+        "A space's notification settings now say what they do: Mute hides the space's unread dot, and each room keeps its own notification setting.",
+        "The composer's \"...\" button now shows the pointer cursor on hover.",
+        "English text now uses American spelling everywhere (Behavior, color, favorite, canceled)."
+      ]
+    },
+    {
+      "date": "2026-10-18T23:00:00Z",
+      "changes": [
+        "Settings › Appearance › Clock picks System default, 12-hour or 24-hour for message times and every other time in the app; desktop now follows the system's 24-hour setting.",
+        "Room and space settings have a \"Publish to room directory\" switch under Room Addresses, so you can list a room or space in Explore rooms or take it off.",
+        "Quitting the app during a call now hangs up first, so you no longer stay shown \"in the call\" afterwards.",
+        "Typing fast and pressing Enter no longer sometimes sends the message twice.",
+        "Unencrypted videos now start playing right away instead of waiting for the whole file to download.",
+        "Rooms full of joins and name changes (like announcement channels) now reach their real messages much faster when you scroll back.",
+        "A received picture that failed to load no longer stays blurred in the chat until you switch rooms.",
+        "Avatars that can't load now show the coloured letter instead of an empty box, and the @ mention list no longer shows your own picture next to someone else's name.",
+        "When two emoji packs have an emoji with the same name, the one you pick is now the one that gets sent.",
+        "Right-click menus now stay inside the window, and a menu taller than the window scrolls, so you can reach every option.",
+        "On desktop, pressing Esc closes the settings page (the first Esc clears an active settings search).",
+        "Unblocking someone (or being unbanned) while their chat is open no longer turns the chat grey; the message box comes back.",
+        "On phones, tapping a space no longer marks its reopened room as read before you've actually opened the chat.",
+        "A call in an ordinary text room now lights up its space's call mark on the left, not only calls in voice rooms.",
+        "Theme editor: the Raised color now also colors selected rows, and each color's description and the preview show where it really appears (the message box follows Room list, the space rail follows Window).",
+        "AMOLED theme: buttons, sidebar icons and room-list rows now show a visible hover highlight.",
+        "In the macOS app, Cmd+V now pastes a copied image or files into the message box.",
+        "Windows: an image copied with \"Copy image\" now pastes back into the message box.",
+        "The Flatpak no longer asks for an outdated codec extension; full video and audio codecs now come from the GNOME 51 runtime itself.",
+        "The in-app log no longer grows for the whole session; it keeps the newest 5000 entries, so long-running sessions use less memory.",
+        "Web: microphone and speaker lists show device names (or \"Microphone 1\", \"Speaker 2\") instead of blank rows.",
+        "Web: without WebGL the page now says how to turn it on instead of freezing."
+      ]
+    },
+    {
+      "date": "2026-10-18T21:00:00Z",
+      "changes": [
+        "In the new chat list (Experiments), you can now archive chats and sort them into folders with tabs, set up in Settings › Chat folders.",
+        "With the Telegram-style chat list, a voice room's speaker icon is green only while people are in the call, and grey when it's empty.",
+        "The forward picker can filter by space and open subspaces, and shows which space each room is in, so same-named rooms are easy to tell apart.",
+        "On foldable iPhones (iPhone Duo) Vommet keeps the chat off the fold, and a half-open phone standing like a laptop shows the call above the fold and its buttons below.",
+        "The Experiments page now describes \"Encryption markers\" and \"Clearer subspaces and voice rooms\" the way they actually work.",
+        "A room marked as unread in another app no longer keeps its unread dot in Vommet after you've read it.",
+        "A link whose preview can't be loaded no longer leaves a grey placeholder box under the message until you reopen the room.",
+        "Starting a direct message from a profile opened in the Read Receipts dialog now closes the dialog.",
+        "Reply and Reply in thread no longer show in the message menu in rooms where you can't send messages.",
+        "Messages starting with an emoticon like \">_>\" are no longer sent as a quote; a quote needs \"> \" with a space.",
+        "Right-clicking a room in the room list now offers \"Invite people\" (when you can invite there).",
+        "The typing indicator no longer shows in an open thread when someone is typing in the main room.",
+        "Closing a thread no longer reopens the right panel when you had it closed, and the panel arrow stays in step.",
+        "Hovering a message in a narrow pane no longer pushes the time under the sender's name; the detailed time now shows over the end of the name instead.",
+        "Key files exported from Vommet keep the \"can share history\" mark when imported into Element."
+      ]
+    },
+    {
+      "date": "2026-10-18T19:30:00Z",
+      "changes": [
+        "The Direct Messages list has a search field: type a name, Matrix ID or nickname to find a conversation.",
+        "You can draw on a picture or hide parts of it (black, pixelated or blurred) in the editor before sending it.",
+        "On Android, images from your keyboard work in the message box: tap a copied image in Gboard's clipboard strip, or send a keyboard GIF or sticker. Each one opens the attachment preview first.",
+        "On Android you can paste an image into the message box (long-press the box, then Paste), whether you copied it in Vommet or in another app.",
+        "Dropping or pasting a file the app can't open now shows a message instead of doing nothing, and files copied in a file manager can be pasted into a chat (Ctrl+V) to attach them, including in the Flatpak.",
+        "With the Telegram-style chat list on a phone, Reply in Thread now keeps the cursor in the thread's message box.",
+        "With several accounts signed in, account settings now open on the account you've switched to instead of the first one you added.",
+        "On desktop, a Quit button next to the back button in Settings closes Vommet completely, even with \"Minimize on close\" on.",
+        "Copied system info in Settings › About now includes your OS version and no longer includes your phone's name or model.",
+        "On Linux (including the Flatpak), the window title bar now turns dark with a dark Vommet theme and stays light with a light one; Settings › Appearance › Theme › Title bar can force it light or dark for any theme.",
+        "The login page accepts a homeserver typed with http:// (e.g. a local test server at http://127.0.0.1:8008), and warns under the field when such an address isn't on this device.",
+        "Settings › Security no longer crashes when you tap Verify on a session that never shared encryption keys; it says \"Can't verify\" and explains why."
+      ]
+    },
+    {
+      "date": "2026-10-18T16:30:00Z",
+      "changes": [
+        "Vommet builds again for iPhone and Mac with current Xcode, asks before using the camera and microphone instead of crashing in calls, shows emoji and end-to-end encryption works there, and installs as \"Vommet\" beside Commet.",
+        "iPhones get the phone layout instead of the desktop one, and foldable iPhones keep the room list clear of the side status bar.",
+        "Redacted mode (experiment): Settings › Redacted mode hides names, pictures, messages and room names on screen at one of six levels, for screenshots and screen sharing.",
+        "Deleted messages leave a muted \"Message deleted\" line (with who deleted it and why, when that wasn't the sender) instead of vanishing; Settings › Experiments › Show deleted messages turns it off.",
+        "On desktop, Ctrl+↑ in the message box replies to the latest message (press again for older ones, Ctrl+↓ to go back or cancel).",
+        "Password managers can now fill in the login form, and offer to save your login after you sign in with a password.",
+        "Screen readers now read sidebar spaces, DMs, pinned rooms and the Home, Rooms, Add Space and Explore buttons by name, and red badges as \"N unread notifications\", instead of just \"Button\".",
+        "An upgraded DM now shows once in Direct Messages, as the new room; the old one is still reachable from the new room's \"continues an older one\" link.",
+        "An account that failed to load (\"Error\" in Manage Accounts) can now be removed with Logout, and its row says why it failed.",
+        "Settings › About and bug reports now show your real Linux distro and desktop in the Flatpak instead of \"GNOME 48\" and \"wayland\".",
+        "AVIF and HEIC pictures from other people now show as pictures (through the sender's thumbnail) instead of a black gap.",
+        "You can now edit your /me emotes, and edits to emotes made in other apps now show up.",
+        "Joining a room or accepting an invite that the server refuses now shows the server's error instead of spinning forever.",
+        "Account switch prefixes now keep a trailing space, so a prefix like \"e \" no longer catches every message starting with \"e\" (set your prefix again if it had a space).",
+        "The Flatpak no longer needs access to NetworkManager; calls work without it and the online check uses the desktop portal instead.",
+        "Kicked, banned or departed members now disappear from the member list (and its role sections) straight away instead of staying until a restart.",
+        "A link written as <https://example.org> is sent without a preview card, like on Discord, and links wrapped this way by other clients don't get one either.",
+        "Message search in encrypted rooms finds messages again when the search has capital letters or extra spaces (e.g. phone keyboard auto-capitalisation).",
+        "Voice notes from bridges and other clients that send \"audio/ogg; codecs=opus\" or a generic file type now play inline instead of showing as a download.",
+        "Calendar events that run past midnight now repeat their after-midnight part, and its title no longer shows the event's ID.",
+        "Links whose preview image is huge no longer crash the app; the preview shows without the image.",
+        "Fixed a crash when the app went to the background or came back while one of your accounts wasn't signed in.",
+        "On Windows, starting Vommet while Commet is running now opens Vommet instead of bringing Commet to the front."
+      ]
+    },
+    {
+      "date": "2026-10-18T13:00:00Z",
+      "changes": [
+        "SVG profile pictures, room and space icons and emotes now show instead of a blank placeholder.",
+        "\"Reply in Thread\" now puts the cursor in the thread's message box, also on Android, and on phones a hidden room or thread no longer keeps the keyboard.",
+        "After a room's icon changes, Android notifications and the room's launcher shortcut show the new icon (Windows notifications also pick up a sender's new avatar).",
+        "Timestamps written as `<t:…>` or `$[…]` are sent as a time again instead of an underlined \"0\"."
+      ]
+    },
+    {
+      "date": "2026-10-17T23:00:00Z",
+      "changes": [
+        "Screen sharing with sound on Windows now sends the audio in stereo instead of mono."
+      ]
+    },
+    {
+      "date": "2026-10-17T21:00:00Z",
+      "changes": [
+        "With \"Minimize on close\" on, Vommet now still quits on logout, shutdown and a Close from the taskbar.",
+        "On Linux, Vommet has a tray icon (click to show or hide, menu with Quit), and a new \"Close to tray\" setting under Window Behaviour.",
+        "Noise suppression now works on Windows (and Android) microphones that run at a lower sample rate than 48 kHz, such as many headsets and Bluetooth mics."
+      ]
+    },
+    {
+      "date": "2026-10-17T19:00:00Z",
+      "changes": [
+        "Making a new recovery key on an account that signs in through the browser no longer fails with \"none of the authentication methods provided by the server are supported\".",
+        "The recovery phrase screen has a working \"Copy to clipboard\" button, and the save button only shows where your system can save it."
+      ]
+    },
+    {
+      "date": "2026-10-17T17:40:00Z",
+      "changes": [
+        "Long sender names no longer wrap: hovering a message doesn't make it jump, and the pinned messages panel shows the name on one line with the time under it."
+      ]
+    },
+    {
+      "date": "2026-10-17T16:55:00Z",
+      "changes": [
+        "The message actions bar now defaults to Full again; Compact and Off are still in Settings › Appearance."
+      ]
+    },
+    {
+      "date": "2026-10-16T22:55:00Z",
+      "changes": [
+        "When an Element user invites someone to an encrypted room, messages you sent from Vommet can now be included in the shared history."
+      ]
+    },
+    {
+      "date": "2026-10-16T20:55:00Z",
+      "changes": [
+        "On desktop, a long left-click on a message now starts selecting messages, and right-clicking a selected message copies, forwards or deletes all of them at once (Forward used to send only the one you clicked).",
+        "A lone \"updated their avatar\"-style line no longer sits behind a dropdown, and clicking a join, leave, avatar or name-change line opens that person's profile card.",
+        "Pictures and files sent in a thread stay in the thread instead of also showing in the main timeline, and no longer go missing from the open thread."
+      ]
+    },
+    {
+      "date": "2026-10-16T18:55:00Z",
+      "changes": [
+        "\"Jump to latest\" now reaches the newest message in one click after you'd jumped back to an older message."
+      ]
+    },
+    {
+      "date": "2026-10-15T18:55:00Z",
+      "changes": [
+        "Spellcheck on Linux and Windows: download dictionaries for your languages in Settings › General › Spellcheck, then right-click an underlined word for suggestions, Add to dictionary or Ignore."
+      ]
+    },
+    {
+      "date": "2026-10-15T16:49:00Z",
+      "changes": [
+        "Pinned messages now show in a bar above the chat, like Telegram: tap it to jump to a pin, and each tap moves on to the next one. Messages you pinned for yourself are included. You can turn both off in Settings › Appearance.",
+        "Room icons in room settings → Appearance are sharp instead of pixelated.",
+        "Settings no longer shows an empty Shortcuts page with a placeholder box on desktops where global shortcuts can't work (GNOME and other Wayland desktops, Flatpak outside KDE); the tab is hidden there.",
+        "On Android, tapping in the message box with some keyboards (Unexpected Keyboard) highlighted text instead of moving the cursor, most noticeably right after Edit; a tap now just places the cursor.",
+        "In the \"Picture gallery\" viewer, pinching a picture now zooms it instead of sometimes sliding to the next picture.",
+        "Screen sharing on a computer now reports (if you send diagnostics) which audio you picked and, on Linux, whether the shared sound actually came from app playback — never app names or the audio itself."
+      ]
+    },
+    {
+      "date": "2026-10-15T06:55:00Z",
+      "changes": [
+        "In fullscreen, moving the mouse brings back the stream's controls and the pointer (before, only a click did), and they stay up while the mouse is over them."
+      ]
+    },
+    {
+      "date": "2026-10-15T04:49:00Z",
+      "changes": [
+        "A bare \"matrix.to\" link in a message no longer turns the message into a big grey box for everyone who sees it.",
+        "Replies now quote the message they answer inside the reply, like Element; pick Quote, Card (Telegram-style) or Compact (the old look) in Settings › Appearance › Replies.",
+        "You can now crop or rotate a picture right in the Add File dialog, next to Mark as spoiler and Remove hidden info, instead of only after adding it.",
+        "On desktop, settings pages now fill the whole window instead of stopping below short pages and showing the theme's background underneath.",
+        "Per-person call volume now also applies to people on other homeservers, and volume changes are written to the log so slider problems can be tracked down.",
+        "New experiment \"Telegram-style chat list\" (Settings › Experiments › Layout and sidebar, off by default): one activity-sorted list of chats and spaces replaces the space rail; spaces open in place with their rooms, who is in voice, and subspaces."
+      ]
+    },
+    {
+      "date": "2026-10-14T22:55:00Z",
+      "changes": [
+        "With Android's \"Bold text\" accessibility setting on, replies, mentions and formatted messages are now bold too, matching plain messages.",
+        "A link or inline code like example.com no longer runs into the word after it (\"example.comtext\").",
+        "The status bar icons now match the app theme on Android, so a light theme on a dark-mode phone no longer shows white icons on white after reopening the app.",
+        "Settings search now finds the Theme mode switch by its new name and jumps to it, and resetting app settings also clears your light and dark theme picks."
+      ]
+    },
+    {
+      "date": "2026-10-14T20:55:00Z",
+      "changes": [
+        "You can crop or rotate a picture before sending it: tap the crop button on the attached picture, and the X next to it removes the attachment.",
+        "Appearance has a new Theme mode setting: choose one theme, or follow the system and pick any theme, including gradients and your own, for light and for dark."
+      ]
+    },
+    {
+      "date": "2026-10-14T19:00:00Z",
+      "changes": [
+        "Calls left behind by a closed app are cleared when Vommet starts, homeservers without call support now say so, and the message menu no longer loses the react option if an emoji pack fails to load.",
+        "Linux notifications no longer turn tags or links in a message or name into formatting; they show them as text."
+      ]
+    },
+    {
+      "date": "2026-10-14T16:55:00Z",
+      "changes": [
+        "Pick your own app font in Settings › Appearance: Atkinson Hyperlegible, Lexend, OpenDyslexic, Inter, your device's font, or a font file.",
+        "Voice messages can be turned into text on your computer (Linux and Windows): tap the →A button on a voice message; the audio never leaves your device, and the speech model is downloaded once, after asking.",
+        "If UnifiedPush is on and several distributor apps are installed but none is chosen, Vommet now asks you to pick one so notifications don't silently stop.",
+        "If a contact whose identity Vommet remembered suddenly has no identity at all, you now get the red \"identity changed\" warning instead of the quiet \"can't confirm\" note.",
+        "Windows notifications now show up for messages containing & or <, and message text can no longer add its own buttons to them.",
+        "A recovery key you copied for your password manager is now taken off the clipboard however you leave setup, not only after the check step.",
+        "New sticker packs only go into sticker rooms you created yourself; sticker rooms others share with you are never the default place for imports.",
+        "Your space nickname is never written into a direct message, even if the space lists that DM.",
+        "Automatic media download now also holds back pictures and videos sent in unusual message types.",
+        "A sticker that decrypts while the room is open no longer keeps \"Failed to decrypt\" above it until you reopen the room.",
+        "A message with an out-of-range timestamp now shows as written instead of failing to display.",
+        "Installing a theme from a .zip can no longer write files outside the theme's folder."
+      ]
+    },
+    {
+      "date": "2026-10-14T14:55:00Z",
+      "changes": [
+        "You can now mark pictures and videos as spoilers when sending them, and spoilers from other apps arrive blurred until you tap them.",
+        "Addresses like example.com in messages now turn into links, like on Telegram (Settings › General › \"Link bare web addresses\" turns it off).",
+        "Phones keep the normal phone layout when turned sideways, instead of switching to a cramped desktop layout; tablets still get the desktop layout.",
+        "On a device that isn't confirmed yet, Settings › Security now starts with \"Confirm this device\": enter your recovery key or approve from another device in one tap."
+      ]
+    },
+    {
+      "date": "2026-10-14T10:55:00Z",
+      "changes": [
+        "Settings and menus now use consistent capitalization and punctuation (sentence case, periods at the end of descriptions, and the Oxford comma)."
+      ]
+    },
+    {
+      "date": "2026-10-14T08:55:00Z",
+      "changes": [
+        "New Nordic and Nordic Polar themes, the theme list now shows a little picture of each theme, and Follow System Brightness / Colors grey out for gradient and imported themes (they never applied there).",
+        "Make your own theme: Settings › Appearance › Theme › Create theme (or Edit current) lets you change every color with a live preview, then save it or share it as a file.",
+        "The theme editor can also set a gradient or picture background, see-through panels, rounder corners and spacing, and gradient themes can now be edited."
+      ]
+    },
+    {
+      "date": "2026-10-14T06:55:00Z",
+      "changes": [
+        "When a recovery key doesn't work, the sign-in setup now says why (a typo in the key, or nothing stored for it to unlock) and tries every stored key; verifying this device from Element now finishes the setup instead of still asking for the key.",
+        "Messages from before you joined an encrypted room that the person who invited you couldn't share now say so (\"The sender didn't share this message with people who joined later\") instead of \"Failed to decrypt event\", and the \"shared by\" note mentions when some earlier messages weren't shared.",
+        "Opening a widget while another one is running works again."
+      ]
+    },
+    {
+      "date": "2026-10-14T04:45:00Z",
+      "changes": [
+        "Settings › Advanced has a new Clear cache button: if rooms, threads or messages look wrong, Vommet downloads them again. You stay logged in and keep your keys.",
+        "Changing the app language now takes effect right away, no restart needed.",
+        "A new setting, Settings › Appearance › Message actions on hover, makes the bar over a message compact (the new default, tucked into the message's corner so it no longer covers the message above), full, or off.",
+        "Pin a message just for yourself: \"Pin for me\" in a message's menu works in any room, your pins show at the top of Pinned Messages, and a small outline pin marks them in the chat. Only you see them.",
+        "Hovering the close button on the \"A new version is out\" bar no longer turns the whole app white.",
+        "On Android, the back button closes Vommet again from the room list (it did nothing there after going back from a chat).",
+        "Automatic media download settings now also hold back pictures and videos that were sent as files.",
+        "On Linux, widgets also open when Chromium is installed as chromium-browser (Fedora), or with Chrome, Brave, Edge or Vivaldi.",
+        "A widget added from a pasted link now gets its own name and icon from its page instead of showing its web address."
+      ]
+    },
+    {
+      "date": "2026-10-14T01:00:00Z",
+      "changes": [
+        "Thread cards now show the reply count and latest reply your server has now, so a deleted reply no longer lingers on the card.",
+        "On Linux, opening a widget right after another one no longer shows \"localhost refused to connect\".",
+        "\"Open on another device\" links for widgets now work on computers that also have an IPv6 address.",
+        "On Windows, widgets no longer open as a frozen white window."
+      ]
+    },
+    {
+      "date": "2026-10-13T23:00:00Z",
+      "changes": [
+        "Sliding sync is now on by default for faster syncing (it falls back to regular sync on servers without it; if you turned it off, it stays off).",
+        "Android: Settings › Advanced › Renderer lets you switch how Vommet draws (Default, OpenGL or Compatibility), for phones where letters go missing from text.",
+        "On Linux (Flatpak), widgets open again on desktops whose display isn't the default one (for example wayland-1).",
+        "A closed sidebar folder now really shows the unread mark when something inside it is unread (it was drawn just off the edge of the sidebar)."
+      ]
+    },
+    {
+      "date": "2026-10-13T21:30:00Z",
+      "changes": [
+        "Try Drawpile from the widget picker: paint together on one shared canvas (an experiment, on drawpile.net's public server).",
+        "The first-run diagnostics question now has a box for your name tag and a note that saying yes really helps during early testing; Settings › Privacy shows the same note next to the tag.",
+        "An open thread no longer shows messages twice or replies above the first message."
+      ]
+    },
+    {
+      "date": "2026-10-13T19:40:00Z",
+      "changes": [
+        "Calls with Element Call users work again: their audio gets a tile instead of an empty grey box, and in a call hosted on another homeserver's call server you can now unmute and be heard (Vommet speaks from your own homeserver's call server when the call's only lets you listen).",
+        "The voice room list no longer shows a grey box when someone joins the call from Element Call.",
+        "Tap an invitation to see the room and who invited you before accepting, decline and block the person or their whole server, and manage it all in the new Settings › Invitations.",
+        "GIFs from Telegram, WhatsApp and Discord bridges now play by themselves on a loop like GIFs, and a new \"Autoplay GIFs\" setting lets you keep all GIFs still until you tap them.",
+        "Pictures sent as a file (for example from another app's \"attach file\" button) now show as pictures instead of a download chip.",
+        "The sign-in screen shows one way in at a time: \"Continue\" for browser sign-in, or \"Login\" once you open the password form.",
+        "Spaces' colours are worked out in the background, so the app no longer stutters for a moment a few seconds after it opens.",
+        "Most of Vommet's own text can now be translated (a volunteer is working on Spanish, Portuguese, Chinese and Esperanto)."
+      ]
+    },
+    {
+      "date": "2026-10-13T15:00:00Z",
+      "changes": [
+        "Settings › Appearance › Theme now shows the name of the theme you're using, gradients included.",
+        "On phones, a space without a banner now shows its name at full width instead of splitting long words."
+      ]
+    },
+    {
+      "date": "2026-10-13T06:55:00Z",
+      "changes": [
+        "Vommet starts faster and keeps up better with many rooms: updates go straight to the room they belong to instead of every room checking each one."
+      ]
+    },
+    {
+      "date": "2026-10-13T05:00:00Z",
+      "changes": [
+        "Settings › General has a Language setting: pick any language Vommet ships (shown in its own name, with how much is translated) instead of always following your system; Traditional Chinese, Brazilian Portuguese and Esperanto now work.",
+        "Messages you can read because the person who invited you shared the room's history now say who shared them.",
+        "On phones the \"+\" (new room) button at the end of the Home room list is no longer hidden behind the navigation bar.",
+        "Leaving a space now also lists rooms nested more than eight subspaces deep.",
+        "On Wayland, Share screen now lets you pick a single app window in the system dialog, not just a whole screen; cancelling it keeps a share that was already running."
+      ]
+    },
+    {
+      "date": "2026-10-13T03:10:00Z",
+      "changes": [
+        "With \"Watch streams like Discord\" on, your own screen share gets its own tile next to yours (dimmed, with Stop streaming), and your tile shows LIVE.",
+        "Opening a thread now shows every reply with the first message on top, and deleted threads no longer linger in the Threads list.",
+        "Vommet starts faster and handles room updates faster: it no longer rebuilds your list of direct messages every time it checks whether a room is one.",
+        "Vommet starts faster: the sidebar's unread badges are counted once per burst of updates instead of once for every room update.",
+        "Vommet starts faster: each space's colours are worked out from its avatar once, after startup, instead of on every update."
+      ]
+    },
+    {
+      "date": "2026-10-12T22:50:00Z",
+      "changes": [
+        "Inviting someone to a space now lets you pick its rooms too, and shows which rooms will share their earlier messages.",
+        "With the Discord-style layout, room widgets now have their own Widgets tab in the member panel instead of an entry in the room menu.",
+        "Widgets you can watch but not use show a View only badge, and a greyed Add widget tile says which role can add widgets.",
+        "New Settings › Appearance › Member list option: show a member's homeserver, their status, or both on one line; statuses saved on a profile now show in the member list too.",
+        "In Explore rooms, voice rooms without a picture show headphones instead of a letter, and voice rooms with a picture get a headphones mark beside their name.",
+        "Closing a thread with the Discord-style layout on no longer turns the window grey.",
+        "\"Load older messages\" now keeps loading until the screen fills or the room's beginning, instead of stopping again after a few more pages."
+      ]
+    },
+    {
+      "date": "2026-10-12T21:00:00Z",
+      "changes": [
+        "You can now remove a room's or space's icon: tap it in Appearance settings and choose Remove Image; icons removed or changed from another app now update without a restart."
+      ]
+    },
+    {
+      "date": "2026-10-12T19:00:00Z",
+      "changes": [
+        "Room admins can replace a room (upgrade it to a new room version or point it to another room) from Room settings → Advanced; a replaced room shows \"Go to the new room\" instead of the message box, the new room links back to the old messages, and the old room leaves the sidebar once you've joined its replacement.",
+        "Hanging up a call no longer hangs for a minute when the server is slow: the call ends within 3 seconds and leaving finishes in the background."
+      ]
+    },
+    {
+      "date": "2026-10-12T17:00:00Z",
+      "changes": [
+        "Push to talk: pick it in Voice settings, then hold your key or the \"Hold to talk\" button in a call to talk.",
+        "Leave Space now opens on the list of rooms and subspaces you're in there, all ticked except ones you're also in through another space; a half-ticked subspace stays joined.",
+        "Rooms whose older history is only membership and profile changes no longer page back forever with a spinner; loading pauses after a few empty pages and offers a \"Load older messages\" button. The member list now fills in members and roles that arrive after it opens.",
+        "Calendar rooms keep syncing their external calendars instead of stopping after an error.",
+        "Opt-in diagnostics now report a freeze the moment it passes 5 seconds, so a frozen app that gets force-quit still tells us what stopped."
+      ]
+    },
+    {
+      "date": "2026-10-12T13:00:00Z",
+      "changes": [
+        "Hovering buttons in pop-ups (call tile, notification banners, formatting popups) no longer logs an error on every mouse move, and room emoji-pack settings stop listening for changes once closed.",
+        "The sticker import progress card no longer gets cut off at the right edge of a maximized window."
+      ]
+    },
+    {
+      "date": "2026-10-12T11:11:00Z",
+      "changes": [
+        "Fixed screen shares that sometimes kept spinning while their sound played (most often when the sharer started a new share); the tile now picks up the video when it arrives."
+      ]
+    },
+    {
+      "date": "2026-10-12T10:45:00Z",
+      "changes": [
+        "Inviting someone to an encrypted room now also lets them read its earlier messages, when the room's history is visible to new members.",
+        "The on-screen call overlay (names drawn over your other windows during a call) is now off by default; turn it on in Settings › Calls.",
+        "A closed sidebar folder now shows the unread mark when anything inside it has unread messages.",
+        "Vommet starts faster: rooms load their saved details in batches instead of one by one."
+      ]
+    },
+    {
+      "date": "2026-10-12T07:50:00Z",
+      "changes": [
+        "Screen shares in calls now work like Discord: press Watch stream to see one (with a small preview first), click the stream to show its controls (mute its sound, stop watching), and fullscreen now really fills your screen. Someone streaming from another of their devices now gets one tile instead of two.",
+        "Watching streams like Discord: someone sharing their screen keeps their own tile, with LIVE and a Watch button that opens their stream.",
+        "Settings has a search box: type a word to find any setting, flip switches right in the results, or jump to the setting's page.",
+        "When you join a space you can pick which of its rooms and subspaces to join; Browse rooms in the space menu brings it back later.",
+        "Right-click a room or subspace in the room list to leave it; leaving a space can also leave the rooms you pick.",
+        "Output and input volume are always available in the headphone and microphone menus, and Settings › Voice now has them under each device, like Discord.",
+        "You can now pick which timezone to show on your profile: Share Timezone opens a searchable list of every timezone, with your device's one a tap away.",
+        "The log page (Settings › About › Logs) can now copy or save the entries it shows — with your search and level filter applied — as a text file to share.",
+        "Import many sticker packs at once by pasting a list of links; they import in the background while you chat. Personal packs are now an advanced option.",
+        "Newly imported sticker packs show up in the sticker picker right away, without restarting.",
+        "Sidebar folders are no longer made by accident: drop on a space to move it, and hold it over the middle for half a second to make a folder; drag a space out anywhere, a folder with one item left goes away, and right-click (or long-press) a folder to delete it.",
+        "Joining or leaving a space now updates the space rail right away, without restarting.",
+        "Pictures opened in the gallery no longer flicker through other pictures while a room is still loading.",
+        "Someone joining or leaving a call no longer puts the unread dot on the room.",
+        "On desktop, the member panel's scrollbar no longer covers the tab row's \"more tabs\" arrow, and you can drag the tab row sideways with the mouse.",
+        "Voice rooms you haven't joined yet show the headphones icon instead of #."
+      ]
+    },
+    {
+      "date": "2026-10-12T01:20:00Z",
+      "changes": [
+        "Splash messages can be short lists, with their lines lined up on the left."
+      ]
+    },
+    {
+      "date": "2026-10-11T23:55:00Z",
+      "changes": [
+        "Messages no longer show out of order after the sliding sync connection restarts.",
+        "When you accept an invite to an encrypted room, you can now read its earlier messages if the person who invited you uses an app that shares them (like Element).",
+        "Vommet starts faster and does less work after every sync, especially with Offline sending on in accounts with many rooms.",
+        "Catching up after a while away is faster: the app no longer looks up presence for every old message it receives.",
+        "Subspaces in the sidebar now list the rooms you haven't joined yet, so you can find and join them instead of seeing an empty heading.",
+        "On a space's page, subspaces now list the rooms you haven't joined yet, with a Join button.",
+        "Spaces with unread messages get a small white pill on the sidebar's edge, like Discord; it grows on hover and marks the space you're in. Turn it off in Appearance → \"Show unread marks on spaces\".",
+        "Rooms you haven't read now show their dot inside spaces even when set to mentions only, like Discord; muted rooms stay quiet.",
+        "The screen-share mark on spaces in the left rail is now a round red icon, matching the headphones mark, instead of a cramped LIVE label.",
+        "Discord-style layout: everyone in the room's call is listed first under \"In call\", even people whose server shares no presence.",
+        "On a phone, a call in a text room no longer shows a big empty grey box above the chat; the slim call bar stays until there's video, screen share or someone talking to show.",
+        "Profile pictures in the call preview (before you press Join) are sharp now too, not just inside the call.",
+        "A long Mutual Spaces or Mutual Rooms list on a profile now scrolls, so the Message button stays on screen.",
+        "The nickname panel now says where your nickname is used (\"used in this room only\", \"used across this space\") and, with several accounts signed in, which account you're editing.",
+        "Android no longer shows \"An error occurred while processing notifications / Bad state: No element\" for a push from a room the app hasn't stored yet; an invite now shows the usual Room Invite notice.",
+        "Developer mode no longer fills the timeline with hidden events; a \"Show hidden events\" switch under it turns them on, and reactions and deletions are labelled instead of \"Unknown message format\".",
+        "The log page (Settings → About → Logs, developer mode) now has a search box and info/debug/warning/error filters, so you can find specific events quickly.",
+        "On Linux, call tiles no longer flicker with garbage (other pictures from the app) while a video or screen share is still loading; they show a spinner until the picture arrives."
+      ]
+    },
+    {
+      "date": "2026-10-11T09:05:00Z",
+      "changes": [
+        "Rooms and spaces you were banned from while the app was closed (or before signing in) now show as banned too, instead of as rooms to join.",
+        "With Block users on, the Call button is greyed in a DM with someone you've blocked."
+      ]
+    },
+    {
+      "date": "2026-10-11T06:49:00Z",
+      "changes": [
+        "New features in Settings › Experiments are now on by default, so you get them without looking; you can still switch any of them off.",
+        "New Settings › Data and storage: see what the media cache uses by type (with a chart), clear chosen types, and set a cache size limit and how long unopened media is kept.",
+        "On phones, Settings › Data and storage › Automatic media download lets you choose which media downloads by itself on mobile data and on Wi-Fi; media held back shows a blurred preview you tap to load.",
+        "Someone's profile now shows the spaces and rooms you share with them; tap one to open it.",
+        "With Block users on, a DM with someone you've blocked shows \"You blocked <name>\" with an Unblock button instead of the message box, and a block badge on its avatar in the room list.",
+        "A space you get banned from now stays in your list too, faded, with the reason if one was given; the rooms in it you're still in keep working.",
+        "Profile pictures in calls are sharp now instead of blurry.",
+        "Videos and audio no longer show \"/ -1 B\" while downloading; you see the real size, or just how much has downloaded when the size isn't known.",
+        "Images and files sent without a caption field no longer show \"Unknown message format\", Vommet no longer sends attachments with a blank name, and forwarding such an image sends it as a normal image.",
+        "The Thread previews setting now shows a live preview card, so you can see each choice before picking it.",
+        "Saving new messages to the device is faster, especially in busy rooms and on phones."
+      ]
+    },
+    {
+      "date": "2026-10-11T02:49:00Z",
+      "changes": [
+        "Login errors now show next to the field: a wrong username or password says so under the password box, and a server address that doesn't answer says \"Couldn't find a Matrix server at …\" under the homeserver box.",
+        "When a newer Vommet release is out, a small bar at the bottom of the app says so and links to the download page; close it with the X.",
+        "The splash screen now shows a random message under the logo while Vommet loads, and Linux shows a splash instead of a blank window.",
+        "Select several messages at once (Select in a message's menu, then tap, drag or Shift+click) to delete, copy or forward them together.",
+        "Threads now show a card under the message that started them, with the reply count, who replied and a preview of the reply; choose which reply it previews in Settings › Appearance › Threads.",
+        "A room you get banned from now stays in your list, greyed, so you can still read it and see the moderator's reason; dismiss it when you're done.",
+        "People you've blocked stay blocked after restarting the app.",
+        "Going back to a space reopens the room you were in on phones too, and Vommet now remembers it after a restart.",
+        "Screen sharing now uses H.264 by default instead of AV1, so it's hardware-encoded on nearly every computer and phone instead of eating CPU. A codec you picked yourself is kept.",
+        "Tapping Call twice while a call is still connecting no longer joins it twice, which left mute buttons that didn't match what the call heard.",
+        "Long calls no longer drop you for Element Call and Element X users after four hours: Vommet now renews its call membership every hour, as those clients do.",
+        "Link previews from Tuwunel-hosted accounts (YouTube links, for one) show the card instead of a loading shimmer that never ends."
+      ]
+    },
+    {
+      "date": "2026-10-10T22:51:00Z",
+      "changes": [
+        "You can now change any sound in Vommet, or pick your own audio file, in Settings › Sounds, including new optional sounds for someone joining or leaving a call, deafen, mentions, a dropped call connection and screen sharing.",
+        "The room's Widgets panel now shows widgets as tiles, with an \"Add widget\" tile that lists ready-made widgets (including the new Park Chess) and accepts any widget link.",
+        "The image viewer's \"3 / 70 · sender\" label is now small and readable instead of huge yellow-underlined text.",
+        "Typing your full Matrix ID (like @you:example.org) as the username now fills in the homeserver for you, and the login fields no longer offer keyboard suggestions.",
+        "Creating an encrypted room no longer fails with \"Encryption is already enabled!\" on servers that encrypt new rooms by default."
+      ]
+    },
+    {
+      "date": "2026-10-10T20:18:00Z",
+      "changes": [
+        "A message you jump to (from a reply, pins, search or the media tab) is highlighted for 3 seconds instead of until you leave the room.",
+        "Messages that mention you, reply to you, or ping @room now stand out with a gold tint and a bar on the left.",
+        "While Vommet is open, new messages now show as a banner at the top of the app instead of a system notification (on by default on Android; tap to open, swipe up to dismiss).",
+        "Settings › Security can now export your message keys to a passphrase-locked file and import key files from Vommet, Element, Cinny and other Matrix apps.",
+        "Rooms that name their power levels (for example in Cinny) now show those names as the member list's sections, like \"Bot\" or \"Helper\".",
+        "New messages no longer wait several seconds when one of your contacts' servers is unreachable.",
+        "New experiment \"Nickname per space and room\": set the name others see in a whole space, or in a single room, from its settings.",
+        "Animated GIFs and WebPs uploaded to photo albums now keep moving, and transparent pictures keep their transparency.",
+        "Settings › Manage Accounts now shows your homeserver's support page and admin contacts when the server publishes them.",
+        "On desktop, clicking a space in the sidebar takes you back to the room you were last in there.",
+        "Long space and subspace names in the sidebar now end in \"…\" instead of running underneath the expand/collapse arrow.",
+        "Clicking a link to a space you're already in opens that space instead of a Join Room dialog that spun forever, and link previews load right away.",
+        "Hover a reaction to see who reacted, and right-click it to see the full list.",
+        "Inserting an emoji into an empty message box now switches the button to Send right away, so the next tap no longer opens the poll menu.",
+        "Long room names in the sidebar stay on one line again and end in \"…\"; hover a name to see it in full.",
+        "The green ring around someone who's talking now sits on the edge of their picture, like Discord's, instead of floating around it.",
+        "The desktop room list no longer jumps when someone joins or leaves a voice call that's scrolled out of view; you see the change when you scroll up."
+      ]
+    },
+    {
+      "date": "2026-10-10T08:50:00Z",
+      "changes": [
+        "Pictures in a mosaic no longer disappear when new messages arrive below them.",
+        "Mentions at the start of a line now line up with the text, and their highlight is easier to see.",
+        "Leaving a call no longer makes you join the next one muted.",
+        "The Home side panel always shows the Direct Messages header and its + button, with a hint to start your first DM when you have none.",
+        "Experiment (Clearer subspaces): people in a voice call are listed closer under the room, with full-size pictures, and your own name no longer says \"(you)\".",
+        "Experiment (Clearer subspaces): in a call, your own name in the room list lights up as soon as your microphone picks you up, even in a whisper, after noise suppression."
+      ]
+    },
+    {
+      "date": "2026-10-10T02:49:00Z",
+      "changes": [
+        "A room's notification setting now shows what really happens: if your account's defaults keep group chats quiet, it says so, and choosing All Messages makes the room notify again.",
+        "Settings › Notifications has \"Default notifications\" switches for group chats and direct messages that apply on all your devices, and warns if notifications are switched off entirely.",
+        "Day dividers in the timeline say Today, Yesterday or the weekday together with the time (switch in Settings › General).",
+        "A picture opened from the member panel's Media tab no longer flickers while more pictures load behind it.",
+        "Discord-style layout: the desktop room header's icons are all one size, and the panel toggle comes last.",
+        "Experiment: Call cards. In several calls at once, each shows its room, space and account, with its own mute and deafen.",
+        "Voice rooms in the room list: no ring around their picture, names turn bold while a call is on, and greens are easier to read on light themes.",
+        "Experiment (Clearer subspaces): spaces on the left show headphones while a call is on in them, or a red LIVE while someone shares their screen in your call there."
+      ]
+    },
+    {
+      "date": "2026-10-09T20:47:00Z",
+      "changes": [
+        "Secure messaging setup now actually appears right after you sign in, and you can replace your recovery key (or lock out a leaked one) in Settings › Security.",
+        "With several accounts signed in, notifications say which account they're for.",
+        "Room settings › Developer › Room State no longer freezes the app in very large rooms.",
+        "After a restart, a room whose last message was edited shows the edited text in the room list.",
+        "Sticker rooms stay out of Home › Rooms after a restart.",
+        "Someone whose membership is refreshed no longer shows as joining twice; it says they updated their profile.",
+        "The topic field when creating a room is one line tall until you type more.",
+        "Subspace cards on a space's page are shaded by depth (also in AMOLED) with a faint guide line, and take less room.",
+        "Discord-style layout: an \"Invite members\" card leads the Members tab, the room's full name heads the ▾ room menu, a red count of unread direct messages sits on the Home icon, the space page lists rooms like the left pane, and the space icon has no ring.",
+        "Fixed an error after logging out, when the app kept looking up people's online status for the closed account."
+      ]
+    },
+    {
+      "date": "2026-10-09T18:16:00Z",
+      "changes": [
+        "Clearer subspaces and voice rooms experiment: voice rooms show who's in them with a ring and headphones, and in a call you're in, people light up while they talk and show a mark when they're muted.",
+        "Diagnostics (only if you opted in) now break down where the app spends time drawing frames and syncing, so we can find what makes it slow."
+      ]
+    },
+    {
+      "date": "2026-10-09T15:41:00Z",
+      "changes": [
+        "Android: notifications for encrypted messages no longer go missing while the app is running in the background; if a message can't be decrypted in time, you get a \"New message\" notification instead.",
+        "Direct messages: the \"identity changed\" warning appears straight away when a contact resets their security keys.",
+        "The mute button in calls turns red when you're muted, and shows your real microphone state even while you share your screen's sound.",
+        "The notification test explains why a message wouldn't notify you, and which rule decided it.",
+        "\"Mark space as read\" in a space's menu, including its subspaces.",
+        "Pictures that failed to load try again by themselves instead of staying blank.",
+        "Small pictures in the media mosaic are no longer blown up past their own size.",
+        "Polls that can't be shown say \"Couldn't display this poll\" instead of a grey error box.",
+        "Discord-style layout: the member panel's tab row shows arrows when tabs don't fit, and arrow keys move between tabs; with the picture gallery experiment, arrow keys work from the Media tab too.",
+        "The diagnostics name tag is saved when you finish typing, in capitals."
+      ]
+    },
+    {
+      "date": "2026-10-09T14:17:00Z",
+      "changes": [
+        "Formatting made easy: on desktop, select text for a formatting bar, or use shortcuts like Ctrl+B, Ctrl+I and Ctrl+U; on phones, use Format in the selection menu or the Aa button next to emoji.",
+        "Paste a link over selected text to turn it into a link, and __double underscores__ underline text.",
+        "Discord-style layout (experiment): the room's top row shows just Invite, Call and Search; everything else is in the ▾ room menu. The member panel's tabs scroll (also with the mouse wheel) when they don't fit."
+      ]
+    },
+    {
+      "date": "2026-10-09T12:45:00Z",
+      "changes": [
+        "Text between slashes, like /this/, is sent in italics and shown that way as you type. You can switch it off in Settings › Appearance.",
+        "The call button shows the call's state: start, join (with how many are in it), in the call, or locked (with a short explanation when you can't join). Direct messages get a single call button; the classic call moves to right-click or long-press."
+      ]
+    },
+    {
+      "date": "2026-10-09T09:43:00Z",
+      "changes": [
+        "Threads list: see every thread in a room, newest activity first, with an All threads / My threads filter. Opening a thread marks it read.",
+        "Block users, as an experiment (Settings › Experiments › Chat and messages): block or unblock someone from their profile, and see everyone you've blocked under Settings › Security."
+      ]
+    },
+    {
+      "date": "2026-10-09T06:44:00Z",
+      "changes": [
+        "After you sign in, an account that hasn't set up secure messaging (or a device that isn't verified yet) gets a guided setup screen, so your encrypted messages stay readable on all your devices. Accounts that are already set up see nothing new."
+      ]
+    },
+    {
+      "date": "2026-10-09T04:56:00Z",
+      "changes": [
+        "Each room's name has a small marker that says whether it's encrypted; tap it for a short explanation.",
+        "Direct messages warn you when the other person's security key changes (someone could be impersonating them), or when they never set up secure messaging.",
+        "Notifications are no longer silenced just because another device of yours is online; they're quieted only while you're actively chatting in that room elsewhere.",
+        "With several accounts, push notifications now arrive for all of them, not just one.",
+        "Settings › Notifications lists your account's push registrations, with a Remove button; Vommet cleans up its own stale ones.",
+        "Your avatar and other people's are sharp in the profile card and on opened profiles.",
+        "Voice room badges on avatars are crisp instead of blurry.",
+        "On phones during a call, opening the keyboard shrinks the call to a slim strip so you can still see the chat.",
+        "On phones, tapping outside the message box clears a text selection.",
+        "Tapping the icon of the space you're already in opens the space's home page.",
+        "Subspaces on a space's page are easier to tell apart: nested cards get their own shade and a coloured bar.",
+        "Linux: very tall or wide pictures (like long screenshots) are no longer squashed; the viewer opens them at full resolution.",
+        "The 'Send original' switch is now 'Remove hidden info' (on by default), with a 'What's this?' explanation of what a picture carries, like location or camera.",
+        "Right-click (or long-press) a picture or file in the member panel's Media and Files tabs to jump to it, forward it, save it or copy it.",
+        "Settings › Experiments has a 'Back to new-user defaults' button, with 'Restore my setup' to undo it.",
+        "Experiments: open a voice room's text chat in one click; manage a space's rooms from its menu (reorder, move, remove); and a picture gallery in the viewer (arrow keys or swipe).",
+        "Reordering rooms in a space no longer brings back rooms you removed.",
+        "Diagnostics (only if you opted in) can carry an optional name tag you type yourself, and now count what happened to notifications."
+      ]
+    },
+    {
+      "date": "2026-10-08T22:38:00Z",
+      "changes": [
+        "Messages that use <font color> (sent by some bots) show their text again instead of vanishing."
+      ]
+    },
+    {
+      "date": "2026-10-08T21:32:00Z",
+      "changes": [
+        "A direct message you just accepted moves to the top of your DM list straight away.",
+        "Long space and room names wrap in their appearance settings instead of pushing the edit button off a phone screen.",
+        "Clearer subspaces and voice rooms, as an experiment (Settings › Experiments › Layout and sidebar): subspaces get headers with a guide line, and voice rooms show how many people are in the call.",
+        "Discord-style layout experiment, on phones: the room's name glides into the pinned row as the banner collapses, instead of showing twice."
+      ]
+    },
+    {
+      "date": "2026-10-08T20:32:00Z",
+      "changes": [
+        "Android notifications: Vommet re-checks its UnifiedPush app and registration at every start, so setups from older versions start working again.",
+        "Push notifications now get set up even if another app (like Element's email notifications) left an incomplete entry on your account.",
+        "Unread-count-only pushes (sent by servers like matrix.org) no longer show up as \"Unknown Notification Data\"."
+      ]
+    },
+    {
+      "date": "2026-10-08T19:06:00Z",
+      "changes": [
+        "Android: Vommet appears in the share sheet. Share pictures, files or text from other apps into any chat.",
+        "Forwarding (experiment) works like Telegram now: pick a chat, and the message waits above the composer, where you can hide the sender or the caption, or change the recipient. Forwarded messages show who they came from."
+      ]
+    },
+    {
+      "date": "2026-10-08T17:55:00Z",
+      "changes": [
+        "Sliding sync experiment: unread counts, unread dots and notifications now work on Synapse servers like matrix.org.",
+        "Profiles (names, pictures, banners, status) load faster, and Vommet asks the server for them far less often."
+      ]
+    },
+    {
+      "date": "2026-10-08T16:57:00Z",
+      "changes": [
+        "Faster startup: Vommet no longer sometimes waits up to 30 seconds for the first sync.",
+        "The member list no longer shows someone you're talking with under \"Offline\" with a green dot.",
+        "On servers that don't share presence, people show as \"Unknown\" (with a hollow dot) instead of all looking offline.",
+        "Voice rooms show a small speaker badge on their avatar, so you can tell them apart even when they have their own picture.",
+        "Discord-style layout experiment: the member panel gets Members, Media, Files and Pins tabs, member rows show who's in voice or sharing their screen, and on phones the room's name and actions share one row.",
+        "The sliding sync experiment now says that unread counts don't work yet on Synapse servers (like matrix.org)."
+      ]
+    },
+    {
+      "date": "2026-10-08T15:08:00Z",
+      "changes": [
+        "Press and hold a sticker to preview it; slide to another sticker, and let go to close. A tap still sends.",
+        "Stickers that failed to load no longer stay blank until you restart; Vommet tries again.",
+        "Turning the profile and audio quick controls on or off during a call applies your output volume right away."
+      ]
+    },
+    {
+      "date": "2026-10-08T14:26:00Z",
+      "changes": [
+        "The Experiments page is tidier: experiments are grouped by topic, there is one warning at the top, experiments that need a restart say so, and Vommet offers to restart when you leave the page after changing one."
+      ]
+    },
+    {
+      "date": "2026-10-08T12:43:00Z",
+      "changes": [
+        "After joining a room on another server, missing older messages are loaded automatically; \"Reload History\" in the room menu fetches them again.",
+        "Android: when editing a message, you can drag the selection handles back again after selecting backwards."
+      ]
+    },
+    {
+      "date": "2026-10-08T12:07:00Z",
+      "changes": [
+        "Messages show as soon as they can be decrypted, without reopening the room.",
+        "Restoring your key backup now downloads the keys, so older encrypted messages become readable.",
+        "Copy image: right-click (or long-press) a picture to put it on your clipboard and paste it anywhere.",
+        "Forward a message to other rooms, as an experiment (Settings › Experiments › Chat experiments).",
+        "Unsent messages are kept per room and thread while Vommet is open, as an experiment.",
+        "Send while offline, as an experiment: messages you send without a connection go out by themselves when you're back online, even after closing the app."
+      ]
+    },
+    {
+      "date": "2026-10-08T10:03:00Z",
+      "changes": [
+        "Pin any room to the sidebar, as an experiment (Settings › Experiments).",
+        "Unread direct messages first, newest at the top, as an experiment (Settings › Experiments)."
+      ]
+    },
+    {
+      "date": "2026-10-08T05:57:00Z",
+      "changes": [
+        "Discord-style layout, as an experiment (Settings › Experiments): spaces and rooms get Discord-style headers and menus, the member list is grouped by who's online, and panes can be resized and banners collapsed.",
+        "A Banner glow setting for how space and room banners blend into the page.",
+        "Your space order in the sidebar is kept after a restart (it wasn't saved when you dragged a space to a new place).",
+        "Fewer errors when you leave a room while it is still loading."
+      ]
+    },
+    {
+      "date": "2026-10-08T04:45:00Z",
+      "changes": [
+        "Notifications: Vommet now lists the UnifiedPush apps on your phone, shows which one it uses (you can change it) and tells you if none is installed.",
+        "Right-click (or long-press) an enlarged picture to save it; tap a person's banner or avatar in their profile, or a space's avatar in its summary, to see it full size. \"Download\" is now \"Save as…\".",
+        "Your profile card (click your name) shows your banner and your current status.",
+        "Clearing your bio from the profile menu works (the confirmation no longer closes by itself).",
+        "Drag spaces and folders in the sidebar to reorder them on desktop, as an experiment (Settings › Experiments).",
+        "The version under Settings › About is now the tester release's name, like testing-2026-10-08."
+      ]
+    },
+    {
+      "date": "2026-10-08T01:40:00Z",
+      "changes": [
+        "Start a call in any chat from the room menu (Call), as part of the calls-in-chats experiment; incoming calls there ring like other calls. The older one-to-one call is still there as \"Classic call\".",
+        "Calls across homeservers, as an experiment: hear people whose call runs on another server's media server.",
+        "Explore says \"no public spaces\" (or rooms) when that's what's missing, instead of always \"no public rooms\"."
+      ]
+    },
+    {
+      "date": "2026-10-07T23:06:00Z",
+      "changes": [
+        "Android: should no longer crash when someone starts or switches a screen share (please tell us if it still does).",
+        "Android: screen sharing should now start properly. It shares your whole screen (sharing a single app isn't possible on Android).",
+        "Fixed: Vommet no longer crashes as soon as it opens (this broke the first three builds of 10-07).",
+        "Sign in with your server's own login page in the browser, on servers that offer it (like nether.im).",
+        "Noise suppression for your microphone in calls, as an experiment: Settings › Experiments.",
+        "Screen sharing on Linux lets you choose which sound to include: none, all apps, or one app, now including apps like Spotify and mpv. Shared sound is now in stereo.",
+        "Only one screen share at a time: starting a new one replaces the old one, and Stop ends it completely.",
+        "When someone switches what they share, the enlarged view follows the new stream instead of going blank.",
+        "Room banners now show as a header above the chat, like space banners, and open full size when you click them.",
+        "Discord-style call controls: a \"Voice Connected\" card, and mute and deafen buttons with device menus next to your name.",
+        "Profile and audio quick controls, as an experiment: a profile card with status and presence, microphone and output volume sliders, and a Voice Settings shortcut.",
+        "matrix: links from other apps open the room or profile in Vommet (and matrix.to links on Android).",
+        "Commet supporter badges are shown as-is, without a donation check at startup.",
+        "Joining a call retries once by itself if the network drops for a moment.",
+        "Message timestamps, as an experiment (Settings › Experiments): type <t:UNIX> or $[UNIX] and everyone sees the time in their own time zone.",
+        "Calls in ordinary chats, as an experiment (Settings › Experiments): when people start an Element Call in a group chat or DM, Vommet shows who's in it and a Join button.",
+        "Fixed: right after signing in, rooms no longer show up twice in the room list.",
+        "This \"What's New\" page: after an update, Vommet lists what changed since the version you last used."
+      ]
+    },
+    {
+      "date": "2026-10-07T18:00:00Z",
+      "changes": [
+        "Direct messages you accept in Vommet now show up under Direct Messages instead of as a group.",
+        "Right-click (or long-press) a chat to mark it as a direct message, or to undo that.",
+        "Change your display name from the menu on your own profile. Every menu option now explains what it does.",
+        "Screen sharing can include sound.",
+        "Optional diagnostics: you can choose to send timings and error types (never your messages) to help us find bugs. Change it any time in Settings › Privacy."
+      ]
+    },
+    {
+      "date": "2026-10-06T22:00:00Z",
+      "changes": [
+        "A welcome screen after your first sign-in, with a button to join the Vommet room.",
+        "Big accounts start faster: the room list shows up sooner and stays responsive while the rest loads.",
+        "Importing a sticker pack no longer adds it to your favourites, and every pack in your sticker rooms shows up in the picker.",
+        "Stickers in the picker are sharp on phones.",
+        "Space banners show the whole picture while loading and stay sharp after a restart.",
+        "When the last message in a room was deleted, the room list now says \"Message deleted\".",
+        "In calls, people who join after you no longer appear as an endless loading tile."
+      ]
+    }
+  ]
+}
