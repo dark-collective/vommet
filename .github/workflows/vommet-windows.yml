@@ -1,0 +1,185 @@
+# Vommet: Windows x64 build. Runs only on the GitHub mirror
+# (github.com/dark-collective/vommet) — Forgejo reads .forgejo/workflows and
+# never sees this file, and Flutter cannot cross-build Windows from Linux.
+# Upstream's build.yml/release.yml stay untouched (they only fire on PRs and
+# GitHub releases, which the push-only mirror never has).
+name: vommet-windows
+
+on:
+  push:
+    branches: [testing, 'ci/windows*']
+    tags: ['testing-*']
+  workflow_dispatch:
+
+# Publishing a GitHub pre-release needs contents: write (GITHUB_TOKEN, no extra
+# secret). Release assets download without a GitHub login, unlike Actions
+# artifacts, so the nether.codes tester releases can fetch the zip from there.
+permissions:
+  contents: write
+
+concurrency:
+  group: vommet-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    if: github.repository != 'commetchat/commet'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: 'stable'
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            commet/build/windows/x64/plugins
+          key: cargo-windows-${{ hashFiles('Cargo.lock', 'pubspec.lock') }}
+          restore-keys: cargo-windows-
+
+      - name: Code Generation
+        run: |
+          flutter config --enable-windows-desktop
+          cd .\commet
+          git config --global core.longpaths true
+          dart run scripts/codegen.dart
+
+      - name: Version label
+        shell: bash
+        run: |
+          vt=$(bash .vommet/ci/version-tag.sh '${{ github.ref_name }}' '${{ github.run_number }}' 2>/dev/null || true)
+          echo "VOMMET_VERSION_TAG=${vt:-${{ github.ref_name }}.${{ github.run_number }}}" >> "$GITHUB_ENV"
+
+      # GitHub's Windows runner sometimes fails here with LNK1201, the linker
+      # unable to write rust_lib_commet.pdb ("check for insufficient disk
+      # space"; 3 tester releases by 10-26). No .pdb ships, so the Rust build
+      # makes none (strip=symbols: rustc links with /DEBUG:NONE on MSVC; the
+      # DLL keeps its exports), and an LNK1201 that still happens is retried
+      # once. Free space is logged before the build and after a failure.
+      - name: Build Windows App
+        env:
+          COMMET_PROD: 1
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Free { Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Used } | ForEach-Object { "free on $($_.Name): $([math]::Round($_.Free/1GB,1)) GB" } }
+          cd .\commet
+          Free
+          $date = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          $log = Join-Path $env:RUNNER_TEMP flutter-build.log
+          for ($try = 1; $try -le 2; $try++) {
+            flutter build windows --release `
+              --dart-define BUILD_MODE=release `
+              --dart-define PLATFORM=windows `
+              --dart-define GIT_HASH=${{ github.sha }} `
+              --dart-define "VERSION_TAG=$env:VOMMET_VERSION_TAG" `
+              --dart-define BUILD_DETAIL=ci `
+              --dart-define BUILD_DATE=$date 2>&1 | Tee-Object -FilePath $log
+            $rc = $LASTEXITCODE
+            if ($rc -eq 0) { break }
+            Free
+            if ($try -eq 2 -or -not (Select-String -Quiet -Path $log -Pattern 'LNK1201')) { exit $rc }
+            "::warning::LNK1201: the linker could not write a .pdb; deleting the build's .pdb files and building again"
+            Get-ChildItem build\windows -Recurse -Filter *.pdb -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem build\windows -Recurse -Filter rust_lib_commet*.pdb -ErrorAction SilentlyContinue | ForEach-Object { "::warning::still made $($_.Name), $([math]::Round($_.Length/1MB)) MB" }
+          Free
+
+      - name: Archive
+        run: tar -a -c -f vommet-windows-x64.zip -C .\commet\build\windows\x64\runner\ Release
+
+      # The installer (Inno Setup 6, preinstalled on GitHub's Windows images)
+      # that installed copies update themselves with. Only for trees that
+      # carry its script (topic feat/windows-installer-update).
+      - name: Installer
+        if: hashFiles('commet/windows/installer/vommet.iss') != ''
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          & $iscc /Qp "/DAppVersion=$env:VOMMET_VERSION_TAG" `
+            "/DSourceDir=$PWD\commet\build\windows\x64\runner\Release" `
+            "/O$PWD" .\commet\windows\installer\vommet.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Install, update over a running copy, uninstall, on this runner. A
+      # broken install fails the build (it would break every installed copy's
+      # updates); the relaunch only warns (a desktop-session quirk shouldn't
+      # stop a release).
+      - name: Installer check
+        if: hashFiles('vommet-windows-x64-setup.exe') != ''
+        timeout-minutes: 10
+        run: |
+          # Start-Process -Wait would also wait for the Vommet the installer
+          # starts again: wait for the installer process alone.
+          function Run([string]$exe, [string[]]$arguments) {
+            $p = Start-Process $exe -ArgumentList $arguments -PassThru
+            if (-not $p.WaitForExit(300000)) { throw "$exe timed out" }
+            $p.ExitCode
+          }
+          $setup = (Resolve-Path .\vommet-windows-x64-setup.exe).Path
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Vommet"
+          $rc = Run $setup '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          if ($rc -ne 0) { throw "install: exit $rc" }
+          foreach ($f in 'vommet.exe','unins000.exe','flutter_windows.dll','data\flutter_assets') {
+            if (-not (Test-Path (Join-Path $app $f))) { throw "install: $f missing" }
+          }
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Vommet.lnk'
+          if (-not (Test-Path $lnk)) { throw "install: no Start menu entry" }
+          $old = Start-Process (Join-Path $app 'vommet.exe') -PassThru
+          Start-Sleep 15
+          $rc = Run $setup '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/RELAUNCH=1'
+          if ($rc -ne 0) { throw "update over a running copy: exit $rc" }
+          Start-Sleep 10
+          $new = Get-Process vommet -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $old.Id }
+          if ($new) { "update: Vommet started again (pid $($new.Id))" } else { "::warning::update: Vommet didn't start again after the silent update" }
+          Get-Process vommet -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep 3
+          $null = Run (Join-Path $app 'unins000.exe') '/VERYSILENT','/SUPPRESSMSGBOXES'
+          Start-Sleep 15
+          if (Test-Path (Join-Path $app 'vommet.exe')) { throw "uninstall: vommet.exe still there" }
+          "installer check OK"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vommet-windows-x64
+          path: |
+            .\vommet-windows-x64.zip
+            .\vommet-windows-x64-setup.exe
+          if-no-files-found: warn
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME//\//-}"
+          files=vommet-windows-x64.zip
+          [ -f vommet-windows-x64-setup.exe ] && files="$files vommet-windows-x64-setup.exe"
+          notes="Windows x64 build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::8}: portable zip and installer, unsigned (SmartScreen will warn). Vommet tester releases: https://nether.codes/nether/vommet/releases"
+          gh release create "windows-${branch}-${GITHUB_RUN_NUMBER}" $files \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Windows ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER}" --notes "$notes"
+          # A stable URL for the newest testing build.
+          if [ "$GITHUB_REF_NAME" = "testing" ]; then
+            gh release delete windows-testing-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+            gh release create windows-testing-latest $files \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Windows testing (latest)" --notes "$notes"
+          fi
