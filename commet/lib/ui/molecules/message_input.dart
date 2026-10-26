@@ -1,0 +1,2586 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'package:commet/client/client.dart';
+import 'package:commet/ui/molecules/voice_message/voice_recording_bar.dart';
+import 'package:commet/utils/voice_message.dart';
+import 'package:commet/utils/voice_recorder.dart';
+import 'package:commet/client/components/emoticon/dynamic_emoticon_pack.dart';
+import 'package:commet/client/components/emoticon_recent/recent_emoticon_component.dart';
+import 'package:commet/client/components/gif/gif_component.dart';
+import 'package:commet/client/components/polls/poll_component.dart';
+import 'package:commet/config/build_config.dart';
+import 'package:commet/config/layout_config.dart';
+import 'package:commet/config/platform_utils.dart';
+import 'package:commet/main.dart';
+import 'package:commet/ui/atoms/adaptive_context_menu.dart';
+import 'package:commet/ui/atoms/emoji_widget.dart';
+import 'package:commet/ui/atoms/keyboard_adaptor.dart';
+import 'package:commet/ui/atoms/random_emoji_button.dart';
+import 'package:commet/ui/atoms/reply_quote.dart';
+import 'package:commet/ui/atoms/rich_text_field.dart';
+import 'package:commet/ui/molecules/attachment_icon.dart';
+import 'package:commet/ui/molecules/composer_formatting/composer_formatting.dart';
+import 'package:commet/ui/molecules/composer_translation.dart';
+import 'package:commet/ui/molecules/overlapping_panels.dart';
+import 'package:commet/ui/molecules/poll_creator.dart';
+import 'package:commet/ui/organisms/attachment_processor/attachment_processor.dart';
+import 'package:commet/ui/molecules/emoticon_picker.dart';
+import 'package:commet/client/components/emoticon/emoticon_component.dart';
+import 'package:commet/ui/pages/settings/categories/room/emoji_packs/import_destinations.dart';
+import 'package:commet/ui/pages/library/library_page.dart';
+import 'package:commet/ui/navigation/adaptive_dialog.dart';
+import 'package:commet/ui/organisms/chat/chat.dart';
+import 'package:commet/client/components/emoticon/emoji_pack.dart';
+import 'package:commet/client/components/gif/gif_search_result.dart';
+import 'package:commet/utils/app_focus_util.dart';
+import 'package:commet/utils/autofill_utils.dart';
+import 'package:commet/utils/file_transfer.dart';
+import 'package:commet/utils/debounce.dart';
+import 'package:commet/utils/image_clipboard.dart';
+import 'package:commet/utils/event_bus.dart';
+import 'package:commet/utils/recovery_key_guard.dart';
+import 'package:commet/utils/translation/message_translation.dart';
+import 'package:commet/utils/translation/paragraph_translation.dart';
+import 'package:commet/utils/translation/room_translation.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:just_the_tooltip/just_the_tooltip.dart';
+import 'package:matrix/matrix.dart' as matrix;
+import 'package:commet/utils/web_paste.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+import 'package:commet/ui/atoms/touch_selection_normalizer.dart';
+import 'package:commet/ui/atoms/primary_selection_field.dart';
+import '../../client/attachment.dart';
+import '../../client/components/emoticon/emoticon.dart';
+import 'package:intl/intl.dart';
+import 'package:commet/ui/molecules/spellcheck_context_menu.dart';
+import 'package:commet/utils/spellcheck/spellcheck.dart';
+
+enum MessageInputSendResult { success, unhandled }
+
+class AttachmentPicker {
+  IconData icon;
+  String label;
+
+  Function() execute;
+
+  AttachmentPicker(
+      {required this.icon, required this.label, required this.execute});
+}
+
+/// Vommet phone composer round 3: the + sheet's "Formatting toolbar" switch
+/// (keeps the phone's format row up; off by default).
+class FormattingToolbarSwitch extends AttachmentPicker {
+  FormattingToolbarSwitch()
+      : super(
+            icon: Icons.text_format,
+            label: ComposerFormatting.labelFormattingToolbar,
+            execute: () => preferences.formattingToolbar
+                .set(!preferences.formattingToolbar.value));
+}
+
+class FormattingToolbarSwitchRow extends StatefulWidget {
+  const FormattingToolbarSwitchRow({super.key});
+
+  @override
+  State<FormattingToolbarSwitchRow> createState() =>
+      _FormattingToolbarSwitchRowState();
+}
+
+class _FormattingToolbarSwitchRowState
+    extends State<FormattingToolbarSwitchRow> {
+  @override
+  Widget build(BuildContext context) {
+    final on = preferences.formattingToolbar.value;
+    return SizedBox(
+      height: 50,
+      child: MergeSemantics(
+        child: InkWell(
+          onTap: toggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                Icon(Icons.text_format,
+                    color: Theme.of(context).colorScheme.onSurface),
+                const SizedBox(width: 12),
+                Expanded(
+                    child:
+                        tiamat.Text(ComposerFormatting.labelFormattingToolbar)),
+                Switch(
+                  key: const ValueKey("composer-formatting-toolbar-switch"),
+                  value: on,
+                  onChanged: (_) => toggle(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> toggle() async {
+    await preferences.formattingToolbar
+        .set(!preferences.formattingToolbar.value);
+    if (mounted) setState(() {});
+  }
+}
+
+class MessageInput extends StatefulWidget {
+  const MessageInput(
+      {super.key,
+      required this.client,
+      this.room,
+      this.maxHeight = 200,
+      this.onSendMessage,
+      this.isRoomE2EE = false,
+      this.onFocusChanged,
+      this.readIndicator,
+      this.relatedEventBody,
+      this.relatedEventSenderColor,
+      this.relatedEventSenderName,
+      this.interactionType,
+      this.forwardBar,
+      this.linkPreviewBar,
+      this.hasPendingForward = false,
+      this.focusKeyboard,
+      this.setInputText,
+      this.isProcessing = false,
+      this.initialText,
+      this.enabled = true,
+      this.editLastMessage,
+      this.stepReplyTarget,
+      this.hintText,
+      this.hintIcon,
+      this.attachments,
+      this.addAttachment,
+      this.checkAttachment,
+      this.onTextUpdated,
+      this.removeAttachment,
+      this.typingIndicatorWidget,
+      this.availibleEmoticons,
+      this.availibleStickers,
+      this.compact = false,
+      this.gifComponent,
+      this.enableKeyboardAdapter = true,
+      this.onReadReceiptsClicked,
+      this.findOverrideClient,
+      this.onTapOverrideClient,
+      this.disableEnterToSend = false,
+      this.sendGif,
+      this.sendFavoriteGif,
+      this.showGifSearch = true,
+      this.size = 35,
+      this.iconScale = 0.5,
+      this.showAttachmentButton = true,
+      this.sendSticker,
+      this.processAutofill,
+      this.onSendVoiceMessage,
+      this.isDirectMessage = false,
+      this.recentTextsFromOthers,
+      this.cancelReply});
+
+  /// Sends a recorded voice message; shows the microphone button when set.
+  /// Returns false when sending failed.
+  final Future<bool> Function(VoiceRecording recording,
+      {Client? overrideClient})? onSendVoiceMessage;
+  final double maxHeight;
+  final double size;
+  final double iconScale;
+  final bool isRoomE2EE;
+  final bool disableEnterToSend;
+  final MessageInputSendResult Function(String message,
+      {Client? overrideClient})? onSendMessage;
+  final Widget? readIndicator;
+  final String? relatedEventBody;
+  final String? relatedEventSenderName;
+  final String? hintText;
+
+  /// Vommet: small icon in front of the hint (the room's encryption state).
+  final IconData? hintIcon;
+  final String? initialText;
+  final bool showAttachmentButton;
+  final bool compact;
+  final bool enableKeyboardAdapter;
+  final Color? relatedEventSenderColor;
+  final List<PendingFileAttachment>? attachments;
+  final EventInteractionType? interactionType;
+  final Stream<void>? focusKeyboard;
+  final bool showGifSearch;
+  final Stream<String>? setInputText;
+  final bool isProcessing;
+  final bool enabled;
+  final Room? room;
+  final Client client;
+  final Widget? typingIndicatorWidget;
+  final List<EmoticonPack>? availibleEmoticons;
+  final List<EmoticonPack>? availibleStickers;
+  final GifComponent? gifComponent;
+  final void Function()? onReadReceiptsClicked;
+  final void Function(Emoticon sticker)? sendSticker;
+  final Future<void> Function(GifSearchResult gif)? sendGif;
+  final Future<void> Function(FavoriteGif gif)? sendFavoriteGif;
+  final void Function(bool focused)? onFocusChanged;
+  final Function(String currentText)? onTextUpdated;
+  final void Function()? cancelReply;
+
+  /// Vommet: shown above the input while a message waits to be forwarded;
+  /// the message can then be sent with no text.
+  final Widget? forwardBar;
+
+  /// Vommet issue 676: the link preview that sending will attach.
+  final Widget? linkPreviewBar;
+  final bool hasPendingForward;
+  final void Function()? editLastMessage;
+
+  // Vommet: Ctrl+↑ / Ctrl+↓ pick the message to reply to (Vommet issue 37)
+  final void Function({required bool older})? stepReplyTarget;
+  final Client? Function(String input)? findOverrideClient;
+  final void Function(Client overrideClient)? onTapOverrideClient;
+  final void Function(PendingFileAttachment attachment)? addAttachment;
+
+  /// Vommet issue 410: false when the file can't be attached (too large); asked
+  /// before the attachment dialog opens.
+  final Future<bool> Function(PendingFileAttachment attachment)?
+      checkAttachment;
+  final void Function(PendingFileAttachment attachment)? removeAttachment;
+  final List<AutofillSearchResult> Function(String text)? processAutofill;
+
+  /// Vommet issue 680 phase 2: whether this is a DM. (The translate button
+  /// shows in every room since the phone composer round 3.)
+  final bool isDirectMessage;
+  final Iterable<String> Function()? recentTextsFromOthers;
+
+  @override
+  State<MessageInput> createState() => MessageInputState();
+}
+
+class MessageInputState extends State<MessageInput> {
+  String get recoveryKeyPasteTitle => Intl.message(
+      "That looks like a recovery key",
+      name: "recoveryKeyPasteTitle",
+      desc:
+          "Message box: title of the dialog shown when the user is about to send what looks like their recovery key");
+
+  String get recoveryKeyPasteBody => Intl.message(
+      "With a recovery key, someone can read your message history and impersonate you, and everyone in this chat would have it forever. Nobody needs your recovery key to help you, not even your server's admins.",
+      name: "recoveryKeyPasteBody",
+      desc: "Message box: body of the recovery key warning dialog");
+
+  String get recoveryKeyPasteDontSend => Intl.message("Don't send it",
+      name: "recoveryKeyPasteDontSend",
+      desc:
+          "Message box: recovery key warning dialog, button that cancels sending");
+
+  String get recoveryKeyPasteSendAnyway => Intl.message(
+      "It's not mine, send anyway",
+      name: "recoveryKeyPasteSendAnyway",
+      desc:
+          "Message box: recovery key warning dialog, button that sends the message anyway");
+
+  String get voiceMessageHintNoMicrophone => Intl.message(
+      "Can't record: microphone unavailable or not allowed.",
+      name: "voiceMessageHintNoMicrophone",
+      desc:
+          "Message box: short hint shown when a voice message can't be recorded");
+
+  String get voiceMessageHintNothingRecorded => Intl.message(
+      "Nothing was recorded.",
+      name: "voiceMessageHintNothingRecorded",
+      desc: "Message box: short hint shown when a voice recording was empty");
+
+  String get voiceMessageHintHoldToRecord => Intl.message(
+      "Hold the microphone to record, release to send.",
+      name: "voiceMessageHintHoldToRecord",
+      desc:
+          "Message box: short hint shown after a quick tap on the microphone button");
+
+  String get voiceMessageHintSendFailed => Intl.message(
+      "Voice message could not be sent.",
+      name: "voiceMessageHintSendFailed",
+      desc:
+          "Message box: short hint shown when sending a voice message failed");
+
+  late FocusNode textFocus;
+  late ComposerFormatting formatting;
+  FocusNode emojiSearchFocus = FocusNode();
+  FocusNode stickerSearchFocus = FocusNode();
+  FocusNode gifSearchFocus = FocusNode();
+
+  late TextEditingController controller;
+  late JustTheController emojiOverlayController = JustTheController();
+  StreamSubscription? keyboardFocusSubscription;
+  StreamSubscription? setInputTextSubscription;
+  StreamSubscription? onScopePopInvoked;
+  OverlayEntry? entry;
+  final layerLink = LayerLink();
+  bool showEmotePicker = false;
+  bool emotePickerActive = false;
+  bool hasEmotePickerOpened = false;
+  List<AutofillSearchResult>? autoFillResults;
+  Client? senderOverride;
+
+  // Vommet issue 597: only the sender can edit a message, so an edit is never
+  // sent from another account.
+  bool get _editing => widget.interactionType == EventInteractionType.edit;
+  JustTheController emojiTooltipController = JustTheController();
+
+  KeyboardAdaptorController keyboardAdaptorController =
+      KeyboardAdaptorController();
+
+  int? autoFillSelection;
+  (int, int)? autoFillRange;
+  ScrollController autofillScrollController = ScrollController();
+
+  void unfocus() {
+    textFocus.unfocus();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Vommet: the text field is read-only while attachments upload. On the
+    // web, the browser's text input stays dead when it turns editable again,
+    // so typing did nothing until another room was opened (Vommet issue
+    // 608). Focus it afresh to reconnect it.
+    if (PlatformUtils.isWeb &&
+        oldWidget.isProcessing &&
+        !widget.isProcessing &&
+        textFocus.hasFocus) {
+      textFocus.unfocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) textFocus.requestFocus();
+      });
+    }
+  }
+
+  void onKeyboardFocusRequested() {
+    textFocus.requestFocus();
+  }
+
+  /// Vommet issue 680 phase 2; null where translation can't run.
+  ComposerTranslation? composerTranslation;
+
+  void onComposerTranslationChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 文A: sets the target of the paragraph under the caret (or opens its
+  /// menu when it has one).
+  Future<void> onTranslateChipTap() async {
+    final t = composerTranslation;
+    if (t == null || t.busy) return;
+    final caret = controller.selection.isValid
+        ? controller.selection.extentOffset
+        : controller.text.length;
+    final text = await t.tapChip(context, controller.text, caret);
+    if (text == null || !mounted) return;
+    onSetInputText(text);
+  }
+
+  /// A paragraph's menu: from its tag ([line]), or 文A long-pressed (the
+  /// paragraph under the caret).
+  Future<void> openParagraphMenu([int? line]) async {
+    final t = composerTranslation;
+    if (t == null || t.busy) return;
+    final draft = controller.text;
+    final caret = controller.selection.isValid
+        ? controller.selection.extentOffset
+        : draft.length;
+    final text = await t.paragraphMenu(
+        context, draft, line ?? paragraphAt(draft, caret));
+    if (text == null || !mounted) return;
+    onSetInputText(text);
+  }
+
+  void undoTranslation() {
+    final original = composerTranslation?.undo();
+    if (original != null) onSetInputText(original);
+  }
+
+  void onSetInputText(String newText) {
+    controller.text = newText;
+    controller.selection =
+        TextSelection(baseOffset: newText.length, extentOffset: newText.length);
+
+    onTextfieldUpdated(newText);
+  }
+
+  @override
+  void dispose() {
+    hideVoiceHint();
+    voiceTicker?.cancel();
+    voiceLevelSub?.cancel();
+    voiceRecorder?.dispose();
+    keyboardFocusSubscription?.cancel();
+    appFocusSubscription?.cancel();
+    refocusTimer?.cancel();
+    setInputTextSubscription?.cancel();
+    preferencesSubscription?.cancel();
+    Spellcheck.instance.removeListener(onSpellcheckChanged);
+    stopWebPaste?.call();
+    formatting.dispose();
+    textScroll.dispose();
+    onScopePopInvoked?.cancel();
+    // Vommet: a pending debounce outlived the composer and called setState on
+    // a disposed keyboard adaptor when the room closed within a second.
+    removeHeightOverrideDebouncer.cancel();
+    composerTranslation?.removeListener(onComposerTranslationChanged);
+    composerTranslation?.dispose();
+    super.dispose();
+  }
+
+  StreamSubscription? preferencesSubscription;
+  StreamSubscription? appFocusSubscription;
+  Timer? refocusTimer;
+  bool wasAppFocused = AppFocus.focused;
+
+  // Desktop: when the window regains focus while this chat is open, put the
+  // cursor back in the message input (part of "Autofocus Message Input").
+  void onAppFocusChanged(void _) {
+    final focused = AppFocus.focused;
+    final regained = focused && !wasAppFocused;
+    wasAppFocused = focused;
+
+    if (!regained) {
+      refocusTimer?.cancel();
+      return;
+    }
+
+    if (!BuildConfig.DESKTOP || !preferences.autoFocusMessageTextBox.value) {
+      return;
+    }
+
+    // Give the click that brought the window back time to land, so it can
+    // keep any focus it gives to something else (a field, a message).
+    refocusTimer?.cancel();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final focusBeforeClick = FocusManager.instance.primaryFocus;
+      refocusTimer?.cancel();
+      refocusTimer = Timer(const Duration(milliseconds: 150),
+          () => refocusAfterAppResumed(focusBeforeClick));
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void refocusAfterAppResumed(FocusNode? focusBeforeClick) {
+    if (!mounted || textFocus.hasFocus || !AppFocus.focused) return;
+
+    // The click that brought the window back focused something else.
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus != focusBeforeClick) return;
+
+    // A dialog, menu or another page is on top of this chat.
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    if (!TickerMode.of(context)) return;
+
+    // Another text field (search, a thread's input, ...) kept its focus.
+    if (focusIsOnTextField(focus)) return;
+
+    textFocus.requestFocus();
+  }
+
+  @override
+  void initState() {
+    controller = RichTextEditingController(
+        client: widget.client, room: widget.room, text: widget.initialText);
+    if (widget.initialText?.isNotEmpty == true) {
+      controller.selection =
+          TextSelection.collapsed(offset: widget.initialText!.length);
+    }
+    controller.addListener(controllerListener);
+    composerEmpty = controller.text.isEmpty;
+    controller.addListener(onComposerTextChanged);
+    keyboardFocusSubscription =
+        widget.focusKeyboard?.listen((_) => onKeyboardFocusRequested());
+    appFocusSubscription = AppFocus.focusStateChanged.listen(onAppFocusChanged);
+
+    setInputTextSubscription = widget.setInputText?.listen(onSetInputText);
+    onScopePopInvoked = EventBus.onPopInvoked.stream.listen(onPopped);
+
+    // Vommet: on the web, pasted pictures arrive as DOM paste events.
+    if (kIsWeb) {
+      stopWebPaste = WebPaste.listenForImages((data) {
+        if (!mounted || !textFocus.hasFocus) return;
+        attachPastedImage(data);
+      });
+    }
+
+    textFocus = FocusNode(onKeyEvent: onKey);
+    textFocus.addListener(onTextFocusChanged);
+    formatting =
+        ComposerFormatting(controller: controller, focusNode: textFocus);
+
+    preferencesSubscription =
+        preferences.onSettingChanged.listen((_) => setState(() {}));
+
+    // Vommet: spellcheck underline follows dictionary and word-list changes.
+    if (Spellcheck.supported) {
+      Spellcheck.instance.ensureInit();
+      Spellcheck.instance.addListener(onSpellcheckChanged);
+    }
+
+    if (widget.room != null && MessageTranslation.instance.supported) {
+      composerTranslation = ComposerTranslation(
+          roomId: widget.room!.identifier,
+          recentTextsFromOthers: widget.recentTextsFromOthers ?? () => const [])
+        ..addListener(onComposerTranslationChanged);
+    }
+
+    if (preferences.autoFocusMessageTextBox.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        textFocus.requestFocus();
+      });
+    }
+
+    super.initState();
+  }
+
+  String? lastSearchText;
+  void onTextfieldUpdated(String value) {
+    widget.onTextUpdated?.call(controller.text);
+    if (value.trim().isEmpty) composerTranslation?.refreshDetected();
+    composerTranslation?.onDraftChanged(controller.text);
+    var range = getAutofillTextRange();
+
+    setState(() {
+      senderOverride = widget.findOverrideClient?.call(controller.text);
+    });
+
+    if (range.$1 == -1 || range.$2 == -1) {
+      return;
+    }
+
+    var text = value.substring(range.$1, range.$2);
+
+    if (text == "") {
+      setState(() {
+        autoFillResults = null;
+        autoFillSelection = null;
+        autoFillRange = null;
+      });
+    }
+
+    if (text == lastSearchText) {
+      return;
+    }
+
+    if (text.isEmpty) {
+      setState(() {
+        autoFillResults = [];
+        autoFillSelection = null;
+        updateAutofillScroll();
+      });
+
+      return;
+    }
+
+    var result = widget.processAutofill?.call(text);
+    autoFillRange = range;
+
+    setState(() {
+      autoFillResults = result;
+
+      if (MediaQuery.of(context).desktop &&
+          result?.isNotEmpty == true &&
+          preferences.selectAutoCompleteSuggestion.value) {
+        autoFillSelection = 0;
+      } else {
+        autoFillSelection = null;
+      }
+      updateAutofillScroll();
+    });
+  }
+
+  (int, int) getAutofillTextRange({int? cursorPosition}) {
+    var cursor = controller.selection.base.offset;
+
+    if (controller.text == "") {
+      return (0, 0);
+    }
+
+    int start = cursorPosition ?? cursor;
+    int end = controller.text.length;
+
+    if (start > 0) {
+      start -= 1;
+      if (controller.text[start] == ' ') {
+        return (0, 0);
+      }
+    }
+
+    for (int i = start; i >= 0; i--) {
+      var char = controller.text[i];
+      if (char == ' ') {
+        if (i == controller.text.length) {
+          start = controller.text.length - 1;
+        } else {
+          start = i + 1;
+        }
+
+        break;
+      }
+
+      if (i <= 0) {
+        start = 0;
+      }
+    }
+
+    for (var i = start + 1; i < controller.text.length; i++) {
+      var char = controller.text[i];
+      if (char == ' ') {
+        end = i;
+        break;
+      }
+    }
+
+    return (start, end);
+  }
+
+  Debouncer sendDebouncer = Debouncer(delay: Duration(milliseconds: 20));
+  // Vommet: set once the user confirmed sending text that looks like a
+  // recovery key, so the retried send goes through.
+  bool _recoveryKeyConfirmed = false;
+
+  void sendMessage() {
+    sendDebouncer.run(() async {
+      if ((widget.attachments == null || widget.attachments!.isEmpty) &&
+          !widget.hasPendingForward) {
+        if (controller.text.isEmpty) return;
+        if (controller.text.trim().isEmpty) return;
+      }
+
+      if (blockedByRecoveryKeyGuard()) return;
+
+      var message = controller.text.trim();
+
+      // Vommet: paragraphs with a target language go out translated (or
+      // nothing goes, saying which paragraph couldn't be).
+      final translation = composerTranslation;
+      if (translation != null && senderOverride == null && message.isNotEmpty) {
+        final outgoing =
+            await translation.prepareSend(context, controller.text);
+        if (outgoing == null || !mounted) return;
+        message = outgoing.trim();
+      }
+
+      var result = widget.onSendMessage
+          ?.call(message, overrideClient: _editing ? null : senderOverride);
+
+      if (result == MessageInputSendResult.success) {
+        controller.text = "";
+        composerTranslation?.onSent(message);
+      }
+    });
+  }
+
+  /// Vommet: never let someone paste their own recovery key into a chat
+  /// without stopping them first. Returns true when the send must wait for
+  /// the user's answer; sending again after "send anyway" goes through.
+  bool blockedByRecoveryKeyGuard() {
+    if (_recoveryKeyConfirmed) {
+      _recoveryKeyConfirmed = false;
+      return false;
+    }
+    if (!preferences.experimentDmTrustWarnings.value ||
+        !RecoveryKeyGuard.containsRecoveryKey(controller.text)) {
+      return false;
+    }
+    confirmSendRecoveryKey().then((send) {
+      if (send == true && mounted) {
+        _recoveryKeyConfirmed = true;
+        sendMessage();
+      }
+    });
+    return true;
+  }
+
+  Future<bool?> confirmSendRecoveryKey() {
+    return AdaptiveDialog.show<bool>(context,
+        title: recoveryKeyPasteTitle,
+        builder: (context) => ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(recoveryKeyPasteBody),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: Text(recoveryKeyPasteDontSend),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: Text(recoveryKeyPasteSendAnyway),
+                    ),
+                  ],
+                ),
+              ),
+            ));
+  }
+
+  void showMoreAttachmentOptions() {}
+
+  // This duration is to try and hide the transition from keyboard popup animation
+  Debouncer removeHeightOverrideDebouncer =
+      Debouncer(delay: Duration(seconds: 1));
+
+  bool get isInEmojiPicker => showEmotePicker && !textFocus.hasFocus;
+
+  Future<void> toggleEmojiOverlay() async {
+    var keyboardOpen = await isKeyboardOpen();
+    print("Keyboard open: $keyboardOpen");
+
+    setState(() {
+      if (MediaQuery.of(context).mobile) {
+        if (showEmotePicker && !keyboardOpen) {
+          // STUPID: since we use android api to dismiss keyboard,
+          // requesting focus normally doesnt work, but if we do this
+          // we can get the onscreen keyboard back
+          unfocus();
+          Future.delayed(Duration(milliseconds: 100)).then((_) {
+            textFocus.requestFocus();
+          });
+          emotePickerActive = false;
+          clearKeyboardOverride();
+        } else {
+          showEmotePicker = true;
+          emotePickerActive = true;
+          keyboardAdaptorController.keepCurrentSize?.call();
+          removeHeightOverrideDebouncer.cancel();
+          if (textFocus.hasFocus) {
+            dismissKeyboard();
+          }
+        }
+      }
+
+      if (MediaQuery.of(context).desktop) {
+        showEmotePicker = !showEmotePicker;
+        emotePickerActive = showEmotePicker;
+        emojiTooltipController.showTooltip(autoClose: false);
+      }
+
+      if (showEmotePicker) {
+        hasEmotePickerOpened = true;
+      }
+    });
+  }
+
+  void clearKeyboardOverride({bool debounce = true}) {
+    final func = () {
+      if (showEmotePicker) {
+        showEmotePicker = false;
+        emotePickerActive = false;
+      }
+
+      if (!showEmotePicker) {
+        keyboardAdaptorController.clearOverride?.call();
+      }
+    };
+
+    if (!debounce) {
+      removeHeightOverrideDebouncer.cancel();
+      func();
+    }
+
+    setState(() {
+      emotePickerActive = false;
+    });
+
+    removeHeightOverrideDebouncer.run(func);
+  }
+
+  void dismissKeyboard() {
+    if (BuildConfig.ANDROID) {
+      const platform = const MethodChannel('chat.commet.commetapp/utils');
+      platform.invokeMethod("dismissKeyboard");
+    }
+  }
+
+  Future<bool> isKeyboardOpen() async {
+    if (BuildConfig.ANDROID) {
+      const platform = const MethodChannel('chat.commet.commetapp/utils');
+      var result = await platform.invokeMethod<bool>("isKeyboardOpen");
+      return result!;
+    } else {
+      return textFocus.hasFocus;
+    }
+  }
+
+  void onTextFocusChanged() {
+    if (textFocus.hasFocus) {
+      clearKeyboardOverride();
+    }
+  }
+
+  void updateAutofillScroll() {
+    if (!autofillScrollController.hasClients) {
+      return;
+    }
+    if (autoFillSelection == null) {
+      autofillScrollController.jumpTo(0);
+      return;
+    }
+
+    int totalChars = 0;
+    int selectionChars = 0;
+    for (int i = 0; i < autoFillResults!.length; i++) {
+      totalChars += autoFillResults![i].result.length;
+
+      if (autoFillSelection! > i) {
+        selectionChars += autoFillResults![i].result.length;
+      }
+    }
+
+    var maxOffset = autofillScrollController.position.maxScrollExtent;
+
+    var amount = selectionChars.toDouble() / totalChars.toDouble();
+    var offset = (maxOffset * amount) - 50;
+
+    if (offset < 0) {
+      offset = 0;
+    }
+
+    var distance = (offset - autofillScrollController.offset).abs();
+    var maxDistance =
+        autofillScrollController.position.viewportDimension * 0.25;
+
+    if (distance > maxDistance) {
+      autofillScrollController.animateTo(offset,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOutExpo);
+    }
+  }
+
+  bool isKnownAutofillMatch(String text) {
+    if (text.startsWith("@") || text.startsWith("!")) {
+      return text.isValidMatrixId;
+    }
+
+    if (text.startsWith(":") && text.endsWith(":")) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  // Vommet: the send button (and the voice button) depend on whether the
+  // composer is empty, but only typing rebuilt them via onChanged. Emoji
+  // picks, autofill completions and edit cancels change the controller
+  // directly, so the button stayed as the poll menu after an emoji.
+  bool composerEmpty = true;
+  void onSpellcheckChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void onComposerTextChanged() {
+    if (!mounted || controller.text.isEmpty == composerEmpty) return;
+    setState(() => composerEmpty = controller.text.isEmpty);
+  }
+
+  TextSelection? prevSelection;
+
+  void controllerListener() {
+    if (PlatformUtils.isAndroid) {
+      return;
+    }
+
+    if (preferences.disableTextCursorManagement.value) {
+      return;
+    }
+
+    var startFill =
+        getAutofillTextRange(cursorPosition: controller.selection.baseOffset);
+
+    var endFill =
+        getAutofillTextRange(cursorPosition: controller.selection.extentOffset);
+
+    var len = controller.selection.start - controller.selection.end;
+
+    var baseOffset = controller.selection.baseOffset;
+    var extentOffset = controller.selection.extentOffset;
+
+    if (baseOffset == -1 || extentOffset == -1) {
+      return;
+    }
+
+    var text = controller.text.substring(startFill.$1, startFill.$2);
+    var endText = controller.text.substring(endFill.$1, endFill.$2);
+    if (isKnownAutofillMatch(text)) {
+      // go forward
+      if ((prevSelection != null &&
+          prevSelection!.baseOffset < controller.selection.baseOffset)) {
+        baseOffset = startFill.$2;
+      } else {
+        // go backward
+        if (baseOffset > startFill.$1 && baseOffset != startFill.$2) {
+          baseOffset = startFill.$1;
+        }
+      }
+    }
+
+    if (isKnownAutofillMatch(endText) && len != 0) {
+      // go forward
+      if ((prevSelection != null &&
+          prevSelection!.extentOffset < controller.selection.extentOffset)) {
+        extentOffset = endFill.$2;
+      } else {
+        // go backward
+        if (extentOffset > endFill.$1) {
+          extentOffset = endFill.$1;
+        }
+      }
+    }
+
+    if (len == 0) {
+      extentOffset = baseOffset;
+    }
+    controller.selection =
+        TextSelection(baseOffset: baseOffset, extentOffset: extentOffset);
+
+    prevSelection = controller.selection;
+  }
+
+  KeyEventResult onKey(FocusNode node, KeyEvent event) {
+    if (formatting.handleKey(event)) return KeyEventResult.handled;
+    if (BuildConfig.MOBILE) return KeyEventResult.ignored;
+
+    if (!preferences.disableTextCursorManagement.value) {
+      if (HardwareKeyboard.instance
+          .isLogicalKeyPressed(LogicalKeyboardKey.backspace)) {
+        var selection = controller.selection.baseOffset;
+        var selectionEnd = controller.selection.extentOffset;
+
+        var range = getAutofillTextRange();
+
+        if (range.$1 < selection) {
+          selection = range.$1;
+        }
+
+        if (range.$2 > selectionEnd) {
+          selectionEnd = range.$2;
+        }
+
+        var text = controller.text.substring(range.$1, range.$2);
+
+        if (isKnownAutofillMatch(text)) {
+          controller.text =
+              controller.text.replaceRange(selection, selectionEnd, "");
+          onTextfieldUpdated(controller.text);
+          return KeyEventResult.handled;
+        }
+      }
+    }
+
+    if (HardwareKeyboard.instance
+        .isLogicalKeyPressed(LogicalKeyboardKey.keyV)) {
+      if (ClipboardFiles.isPasteModifier(
+          control: HardwareKeyboard.instance.isControlPressed,
+          meta: HardwareKeyboard.instance.isMetaPressed)) {
+        if (ClipboardFiles.supported &&
+            event is! KeyUpEvent &&
+            event.logicalKey == LogicalKeyboardKey.keyV) {
+          // Copied files usually come with their paths as text too; attach
+          // them instead of pasting the paths (Vommet issue 328).
+          pasteFromKeyboard();
+          return KeyEventResult.handled;
+        }
+        readImageFromClipboard();
+        return KeyEventResult.ignored;
+      }
+    }
+
+    if (HardwareKeyboard.instance.isLogicalKeyPressed(LogicalKeyboardKey.tab)) {
+      if (autoFillResults == null || autoFillResults!.isEmpty) {
+        autoFillSelection = null;
+        return KeyEventResult.ignored;
+      } else {
+        if (autoFillSelection == null) {
+          setState(() {
+            autoFillSelection = 0;
+            updateAutofillScroll();
+          });
+        } else {
+          setState(() {
+            autoFillSelection = (autoFillSelection! + 1);
+            if (autoFillSelection! >= autoFillResults!.length) {
+              autoFillSelection = 0;
+            }
+
+            updateAutofillScroll();
+          });
+        }
+
+        return KeyEventResult.handled;
+      }
+    }
+
+    if (widget.disableEnterToSend != true) {
+      // Vommet: act on the Enter key's own key-down only. Checking whether
+      // Enter is held also matched repeats, key-ups and other keys typed
+      // while it was still down, which sent the message twice (Vommet
+      // issue 333).
+      if (event.logicalKey == LogicalKeyboardKey.enter) {
+        // Vommet: Ctrl+Enter adds a line break like Shift+Enter (Vommet
+        // issue 487). The text field doesn't insert one for it, so do it
+        // here.
+        if (HardwareKeyboard.instance.isControlPressed &&
+            !HardwareKeyboard.instance.isShiftPressed) {
+          if (event is! KeyUpEvent) insertNewline();
+          return KeyEventResult.handled;
+        }
+
+        if (event is! KeyDownEvent) {
+          return HardwareKeyboard.instance.isShiftPressed
+              ? KeyEventResult.ignored
+              : KeyEventResult.handled;
+        }
+
+        if (autoFillSelection != null && autoFillRange != null) {
+          applyAutoFill(autoFillResults![autoFillSelection!]);
+          return KeyEventResult.handled;
+        }
+
+        if (HardwareKeyboard.instance.isShiftPressed) {
+          return KeyEventResult.ignored;
+        }
+
+        sendMessage();
+        return KeyEventResult.handled;
+      }
+    }
+
+    if (HardwareKeyboard.instance
+        .isLogicalKeyPressed(LogicalKeyboardKey.escape)) {
+      doCancelInteraction();
+      return KeyEventResult.handled;
+    }
+
+    // Vommet: Ctrl+↑ / Ctrl+↓ reply to an earlier / later message, as in
+    // Telegram Desktop (Vommet issue 37).
+    if (event is! KeyUpEvent &&
+        widget.stepReplyTarget != null &&
+        HardwareKeyboard.instance.isControlPressed &&
+        !HardwareKeyboard.instance.isAltPressed &&
+        !HardwareKeyboard.instance.isShiftPressed &&
+        (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+            event.logicalKey == LogicalKeyboardKey.arrowDown)) {
+      widget.stepReplyTarget!(
+          older: event.logicalKey == LogicalKeyboardKey.arrowUp);
+      return KeyEventResult.handled;
+    }
+
+    if (HardwareKeyboard.instance
+            .isLogicalKeyPressed(LogicalKeyboardKey.arrowUp) &&
+        // Vommet: Alt+Up switches rooms (Vommet issues 290/499).
+        !HardwareKeyboard.instance.isAltPressed &&
+        controller.text.isEmpty) {
+      widget.editLastMessage?.call();
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  void insertNewline() {
+    final value = controller.value;
+    final selection = value.selection;
+    if (!selection.isValid) {
+      controller.text += "\n";
+    } else {
+      controller.value = value.replaced(selection, "\n");
+    }
+    onTextfieldUpdated(controller.text);
+  }
+
+  void applyAutoFill(AutofillSearchResult result) {
+    var replacement = result.slug;
+
+    var checkWhitespaceAt = autoFillRange!.$2;
+
+    if (checkWhitespaceAt < controller.text.length) {
+      if (controller.text[checkWhitespaceAt] != " ") {
+        replacement = "$replacement ";
+      }
+    } else {
+      replacement = "$replacement ";
+    }
+
+    controller.text = controller.text
+        .replaceRange(autoFillRange!.$1, autoFillRange!.$2, replacement);
+    setState(() {
+      autoFillSelection = null;
+      autoFillResults = null;
+      autoFillRange = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var padding = const EdgeInsets.fromLTRB(0, 0, 0, 0);
+
+    return Material(
+      color: Colors.transparent,
+      child: TextFieldTapRegion(
+        child: IgnorePointer(
+          ignoring: widget.isProcessing,
+          child: Opacity(
+            opacity: widget.isProcessing ? 0.5 : 1,
+            child: KeyboardAdaptor(
+              enabled: widget.enableKeyboardAdapter,
+              paddingContent: (MediaQuery.of(context).mobile && showEmotePicker)
+                  ? buildEmojiPicker()
+                  : Container(),
+              shouldPushContent: () {
+                if (emojiSearchFocus.hasFocus) {
+                  return true;
+                }
+
+                if (stickerSearchFocus.hasFocus) {
+                  return true;
+                }
+
+                if (gifSearchFocus.hasFocus) {
+                  return true;
+                }
+
+                return false;
+              },
+              controller: keyboardAdaptorController,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.typingIndicatorWidget != null)
+                    widget.typingIndicatorWidget!,
+                  if (widget.interactionType != null) interactionText(),
+                  if (widget.forwardBar != null) widget.forwardBar!,
+                  if (widget.linkPreviewBar != null) widget.linkPreviewBar!,
+                  ...translationLines(),
+                  if (widget.attachments != null &&
+                      widget.attachments!.isNotEmpty)
+                    displayAttachments(),
+                  // No bottom row in the compact composer: the phone's
+                  // format row goes above it.
+                  if (widget.compact && MediaQuery.of(context).mobile)
+                    formatting.mobileRow(context),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: Padding(
+                      padding: padding,
+                      child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.enabled &&
+                                widget.showAttachmentButton &&
+                                !voiceRecording)
+                              KeyedSubtree(
+                                  key: const ValueKey("composer-attach"),
+                                  child: addAttachmentButton()),
+                            Flexible(
+                              key: const ValueKey("composer-input"),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(5),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerLow),
+                                  child: voiceRecording
+                                      ? VoiceRecordingBar(
+                                          elapsed: voiceRecorder?.elapsed ??
+                                              Duration.zero,
+                                          levels: voiceLevels,
+                                          holdMode: voiceHoldMode,
+                                          dragDx: voiceDragDx,
+                                          cancelDistance: voiceCancelDistance,
+                                          onCancel: cancelVoiceRecording,
+                                        )
+                                      : fieldWithButtons(context),
+                                ),
+                              ),
+                            ),
+                            // Keyed: starting a recording removes the
+                            // attachment and send buttons. Unkeyed, the mic
+                            // button would be matched to the send button's
+                            // old element and rebuilt mid-press, dropping
+                            // the long-press (no slide-to-cancel, no
+                            // release-to-send).
+                            if (showVoiceButton)
+                              KeyedSubtree(
+                                  key: const ValueKey("composer-voice"),
+                                  child: voiceMessageButton()),
+                            if (widget.enabled && !voiceRecording)
+                              KeyedSubtree(
+                                  key: const ValueKey("composer-send"),
+                                  child: sendMessageButton())
+                          ]),
+                    ),
+                  ),
+                  if (!widget.compact)
+                    SizedBox(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 2, 0, 0),
+                        child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              const SizedBox(height: 30),
+                              if (senderOverride != null && !_editing)
+                                senderOverrideView(),
+                              if (autoFillResults != null)
+                                autofillResultsList(),
+                              // Vommet: the phone's format row, on a
+                              // selection or with the toolbar on.
+                              if (autoFillResults == null)
+                                Expanded(
+                                    child: MediaQuery.of(context).mobile
+                                        ? formatting.mobileRow(context)
+                                        : const SizedBox()),
+                            ]),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget senderOverrideView() {
+    final profile = senderOverride?.self;
+    if (profile == null) {
+      return Container();
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        height: 30,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 2, 2, 2),
+          child: Material(
+            borderRadius: BorderRadius.circular(8),
+            clipBehavior: Clip.hardEdge,
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
+              onTap: () {
+                widget.onTapOverrideClient?.call(senderOverride!);
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 5,
+                    ),
+                    tiamat.Avatar(
+                        radius: 10,
+                        image: profile.avatar,
+                        placeholderColor: profile.defaultColor,
+                        placeholderText: profile.displayName),
+                    SizedBox(
+                      width: 10,
+                    ),
+                    tiamat.Text.labelLow("Sending as: ${profile.displayName}"),
+                    SizedBox(
+                      width: 5,
+                    )
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Expanded autofillResultsList() {
+    return Expanded(
+      child: ShaderMask(
+        shaderCallback: (rect) {
+          return const LinearGradient(
+            begin: Alignment.centerRight,
+            end: Alignment.center,
+            colors: [
+              Colors.purple,
+              Colors.transparent,
+            ],
+            stops: [
+              0.0,
+              0.1,
+            ],
+          ).createShader(rect);
+        },
+        blendMode: BlendMode.dstOut,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(2, 0, 2, 0),
+          child: SizedBox(
+            height: 30,
+            child: Listener(
+              onPointerSignal: (event) {
+                if (!MediaQuery.of(context).desktop) return;
+                if (event is PointerScrollEvent) {
+                  final offset = event.scrollDelta.dy;
+
+                  autofillScrollController.jumpTo(
+                      (autofillScrollController.offset + offset).clamp(0,
+                          autofillScrollController.position.maxScrollExtent));
+                }
+              },
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(0, 0, 300, 0),
+                itemCount: autoFillResults!.length,
+                controller: autofillScrollController,
+                shrinkWrap: true,
+                itemBuilder: (context, index) {
+                  bool selected = false;
+                  var data = autoFillResults![index];
+                  if (autoFillSelection != null) {
+                    selected = data == autoFillResults![autoFillSelection!];
+                  }
+
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: Material(
+                      color: selected
+                          ? Theme.of(context).colorScheme.secondary
+                          : Colors.transparent,
+                      child: InkWell(
+                        mouseCursor: WidgetStateMouseCursor.clickable,
+                        onTap: () => applyAutoFill(data),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 1, 4, 1),
+                          child: Row(
+                            children: [
+                              if (data is AutofillSearchResultEmoticon)
+                                EmojiWidget(data.emoticon),
+                              if (data is AutofillSearchResultAvatar)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(0, 0, 3, 0),
+                                  child: tiamat.Avatar(
+                                      image: data.image,
+                                      radius: 10,
+                                      placeholderColor: data.fallbackColor,
+                                      placeholderText: data.result),
+                                ),
+                              tiamat.Text.labelLow(
+                                data.result,
+                                color: selected
+                                    ? Theme.of(context).colorScheme.onSecondary
+                                    : Theme.of(context).colorScheme.secondary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- voice messages ------------------------------------------------------
+
+  static const double voiceCancelDistance = 80;
+  static const Duration voiceMinDuration = Duration(milliseconds: 600);
+
+  /// Replaced in widget tests, which have no microphone.
+  static VoiceRecorder Function() createVoiceRecorder = VoiceRecorder.new;
+
+  VoiceRecorder? voiceRecorder;
+  bool voiceRecording = false;
+  bool voiceStarting = false;
+  bool voiceHoldMode = false;
+  bool voiceReleasedWhileStarting = false;
+  bool voiceSending = false;
+  double voiceDragDx = 0;
+  List<double> voiceLevels = const [];
+  Timer? voiceTicker;
+  StreamSubscription<double>? voiceLevelSub;
+
+  bool get showVoiceButton {
+    if (widget.onSendVoiceMessage == null || !widget.enabled) return false;
+    if (voiceRecording || voiceStarting || voiceSending) return true;
+    return controller.text.isEmpty && widget.attachments?.isNotEmpty != true;
+  }
+
+  OverlayEntry? voiceHintEntry;
+  Timer? voiceHintTimer;
+
+  void showVoiceHint(String text) {
+    // A SnackBar only shows under a Scaffold, and the desktop chat layout
+    // has none (Vommet issue 558: the hint never appeared on Windows). Fall
+    // back to a short-lived pill just above the message box.
+    if (Scaffold.maybeOf(context) != null) {
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(text)));
+      return;
+    }
+    final overlay = Overlay.maybeOf(context);
+    final box = context.findRenderObject() as RenderBox?;
+    if (overlay == null || box == null || !box.hasSize) return;
+    hideVoiceHint();
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+    final top = box.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final bottom = (overlayBox?.size.height ?? top.dy) - top.dy + 8;
+    final left = top.dx;
+    final width = box.size.width;
+    final scheme = Theme.of(context).colorScheme;
+    voiceHintEntry = OverlayEntry(
+        builder: (_) => Positioned(
+              left: left,
+              width: width,
+              bottom: bottom,
+              child: IgnorePointer(
+                child: Center(
+                  child: Material(
+                    color: scheme.inverseSurface,
+                    borderRadius: BorderRadius.circular(8),
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      child: Text(text,
+                          style: TextStyle(color: scheme.onInverseSurface)),
+                    ),
+                  ),
+                ),
+              ),
+            ));
+    overlay.insert(voiceHintEntry!);
+    voiceHintTimer = Timer(const Duration(seconds: 4), hideVoiceHint);
+  }
+
+  void hideVoiceHint() {
+    voiceHintTimer?.cancel();
+    voiceHintTimer = null;
+    voiceHintEntry?.remove();
+    voiceHintEntry = null;
+  }
+
+  Future<void> startVoiceRecording({required bool hold}) async {
+    if (voiceRecording || voiceStarting || voiceSending) return;
+    voiceStarting = true;
+    voiceReleasedWhileStarting = false;
+    voiceRecorder ??= createVoiceRecorder();
+    final ok = await voiceRecorder!.start();
+    voiceStarting = false;
+    if (!mounted) return;
+    if (!ok) {
+      showVoiceHint(voiceMessageHintNoMicrophone);
+      return;
+    }
+    setState(() {
+      voiceRecording = true;
+      voiceHoldMode = hold;
+      voiceDragDx = 0;
+      voiceLevels = const [];
+    });
+    voiceLevelSub = voiceRecorder!.levels.listen((level) {
+      if (!mounted) return;
+      setState(() {
+        final next = List<double>.of(voiceLevels)..add(level);
+        voiceLevels =
+            next.length > 120 ? next.sublist(next.length - 120) : next;
+      });
+    });
+    voiceTicker = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (mounted) setState(() {});
+    });
+    // Released the button before the recorder had started: treat as a tap
+    // that was too short.
+    if (hold && voiceReleasedWhileStarting) {
+      await finishVoiceRecording();
+    }
+  }
+
+  void stopVoiceUi() {
+    voiceTicker?.cancel();
+    voiceTicker = null;
+    voiceLevelSub?.cancel();
+    voiceLevelSub = null;
+    if (mounted) {
+      setState(() {
+        voiceRecording = false;
+        voiceDragDx = 0;
+      });
+    }
+  }
+
+  Future<void> cancelVoiceRecording() async {
+    if (!voiceRecording) return;
+    stopVoiceUi();
+    await voiceRecorder?.cancel();
+  }
+
+  Future<void> finishVoiceRecording() async {
+    if (!voiceRecording) return;
+    final wasHold = voiceHoldMode;
+    stopVoiceUi();
+    final recording = await voiceRecorder?.stop();
+    if (!mounted) return;
+    if (recording == null) {
+      showVoiceHint(voiceMessageHintNothingRecorded);
+      return;
+    }
+    if (recording.duration < voiceMinDuration) {
+      if (wasHold) showVoiceHint(voiceMessageHintHoldToRecord);
+      return;
+    }
+    setState(() => voiceSending = true);
+    final ok = await widget.onSendVoiceMessage!(recording,
+        overrideClient: senderOverride);
+    if (!mounted) return;
+    setState(() => voiceSending = false);
+    if (!ok) showVoiceHint(voiceMessageHintSendFailed);
+  }
+
+  Widget voiceMessageButton() {
+    final scheme = Theme.of(context).colorScheme;
+    final handsFree = voiceRecording && !voiceHoldMode;
+    final active = voiceRecording;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 0, 0),
+      child: GestureDetector(
+        onLongPressStart: (voiceRecording || voiceSending)
+            ? null
+            : (_) => startVoiceRecording(hold: true),
+        onLongPressMoveUpdate: (details) {
+          if (!voiceRecording || !voiceHoldMode) return;
+          final dx = details.offsetFromOrigin.dx;
+          if (dx < -voiceCancelDistance) {
+            cancelVoiceRecording();
+          } else {
+            setState(() => voiceDragDx = dx);
+          }
+        },
+        onLongPressEnd: (_) {
+          if (voiceStarting) {
+            voiceReleasedWhileStarting = true;
+          } else if (voiceRecording && voiceHoldMode) {
+            finishVoiceRecording();
+          }
+        },
+        child: SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: voiceSending
+              ? const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : tiamat.CircleButton(
+                  icon: handsFree ? Icons.send : Icons.mic,
+                  radius: widget.size * widget.iconScale,
+                  color: active ? scheme.primary : null,
+                  iconColor: active ? scheme.onPrimary : scheme.secondary,
+                  onPressed: () {
+                    if (!voiceRecording) {
+                      startVoiceRecording(hold: false);
+                    } else if (!voiceHoldMode) {
+                      finishVoiceRecording();
+                    }
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget sendMessageButton() {
+    bool canSend = controller.text.isNotEmpty ||
+        widget.attachments?.isNotEmpty == true ||
+        widget.hasPendingForward;
+
+    var pollComponent = widget.room?.client.getComponent<PollComponent>();
+
+    double targetValue = canSend ? 1 : 0;
+    return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+        child: TweenAnimationBuilder(
+          tween: Tween<double>(begin: 0, end: targetValue),
+          duration: Durations.medium1,
+          builder: (context, value, child) {
+            return ClipRRect(
+              borderRadius: BorderRadiusGeometry.circular(widget.size),
+              child: Material(
+                child: AdaptiveContextMenu(
+                  modal: true,
+                  items: canSend
+                      ? List.empty()
+                      : [
+                          if (pollComponent != null)
+                            tiamat.ContextMenuItem(
+                              text: "Poll",
+                              icon: Icons.poll,
+                              onPressed: () async {
+                                var createArgs =
+                                    await AdaptiveDialog.show<PollCreateArgs>(
+                                        context,
+                                        title: "Create Poll",
+                                        builder: (context) => PollCreator());
+
+                                if (createArgs != null) {
+                                  print(createArgs);
+                                  pollComponent.createPoll(
+                                      widget.room!, createArgs);
+                                }
+                              },
+                            )
+                        ],
+                  child: GestureDetector(
+                    // Vommet: long-press send shows what will be sent when
+                    // paragraphs get translated.
+                    onLongPress: canSend && willTranslate ? showWillSend : null,
+                    child: SizedBox(
+                      width: widget.size,
+                      height: widget.size,
+                      child: tiamat.CircleButton(
+                        icon: canSend ? Icons.send : Icons.more_horiz,
+                        radius: widget.size * widget.iconScale,
+                        // Disabled while empty, but it still opens the menu.
+                        mouseCursor: pollComponent != null
+                            ? SystemMouseCursors.click
+                            : WidgetStateMouseCursor.clickable,
+                        onPressed: canSend
+                            ? () {
+                                sendMessage();
+                              }
+                            : null,
+                        color: Color.lerp(
+                            Theme.of(context).colorScheme.primary.withAlpha(0),
+                            Theme.of(context).colorScheme.primary,
+                            value),
+                        iconColor: Color.lerp(
+                            Theme.of(context).colorScheme.secondary,
+                            Theme.of(context).colorScheme.onPrimary,
+                            value),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ));
+  }
+
+  /// Whether sending translates some paragraphs.
+  bool get willTranslate =>
+      composerTranslation?.translatedRuns.isNotEmpty == true &&
+      senderOverride == null;
+
+  /// Long-press send: "Will send" with each block in its language; Send
+  /// sends exactly that.
+  Future<void> showWillSend() async {
+    final t = composerTranslation;
+    if (t == null) return;
+    final blocks = await t.previewSend(context, controller.text);
+    if (blocks == null || !mounted) return;
+    final send = await showWillSendSheet(context, blocks);
+    if (send == true && mounted) sendMessage();
+  }
+
+  /// The text field and its own buttons (文A, emoji).
+  ///
+  /// Vommet: on phones those buttons take nearly half the box, so once the
+  /// draft wraps they drop to a row under the text and the text gets the
+  /// full width. The tree is the same in both states (a Column holding the
+  /// text Row), so the TextField keeps its focus and selection.
+  Widget fieldWithButtons(BuildContext context) {
+    final showChip = widget.enabled &&
+        composerTranslation?.showChip(controller.text) == true;
+    final buttons = <Widget>[
+      if (showChip) translateChip(),
+      if (widget.enabled) toggleEmojiButton(),
+    ];
+    final mobile = MediaQuery.of(context).mobile;
+    return LayoutBuilder(builder: (context, constraints) {
+      final stacked = mobile &&
+          buttons.isNotEmpty &&
+          draftWrapsBesideButtons(
+              context, constraints.maxWidth, buttonsWidth(showChip));
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Flexible: a long draft scrolls inside the capped height
+          // instead of overflowing it.
+          Flexible(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                textInput(context),
+                if (!stacked) ...buttons,
+              ],
+            ),
+          ),
+          if (stacked)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: buttons,
+              ),
+            ),
+        ],
+      );
+    });
+  }
+
+  /// About how wide the field's buttons are: emoji and the translate chip
+  /// with its language code (and the paragraph tags' room). Rounded up so a
+  /// draft never wraps beside them without moving them.
+  double buttonsWidth(bool chip) =>
+      widget.size + (chip ? 64 : 0) + paragraphTagsReserve;
+
+  /// Whether the draft needs more than one line beside the buttons.
+  bool draftWrapsBesideButtons(
+      BuildContext context, double maxWidth, double buttons) {
+    final text = controller.text;
+    if (text.isEmpty || !maxWidth.isFinite) return false;
+    if (text.contains("\n")) return true;
+    // contentPadding of the TextField: 8 left, 4 right.
+    final width = maxWidth - buttons - 12;
+    if (width <= 0) return true;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: Theme.of(context).textTheme.bodyMedium),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: width);
+    final wraps = painter.computeLineMetrics().length > 1;
+    painter.dispose();
+    return wraps;
+  }
+
+  Widget toggleEmojiButton() {
+    var button = SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: RandomEmojiButton(
+            size: widget.size,
+            onTap: toggleEmojiOverlay,
+            toggled: MediaQuery.of(context).mobile
+                ? (emojiTooltipController.value == TooltipStatus.isShowing ||
+                    (emotePickerActive == true))
+                : false));
+
+    if (MediaQuery.of(context).mobile) return button;
+
+    return Padding(
+        padding: const EdgeInsets.fromLTRB(0, 0, 2, 0),
+        child: JustTheTooltip(
+          isModal: true,
+          preferredDirection: AxisDirection.up,
+          controller: emojiTooltipController,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
+          onDismiss: () {
+            if (MediaQuery.of(context).desktop) {
+              textFocus.requestFocus();
+            }
+          },
+          content: ClipRRect(
+            borderRadius: BorderRadiusGeometry.circular(8),
+            child: Material(
+              child: Container(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                child: SizedBox(
+                  height: 500,
+                  width: 500,
+                  child: buildEmojiPicker(skipIfNeverOpened: false),
+                ),
+              ),
+            ),
+          ),
+          child: button,
+        ));
+  }
+
+  Expanded textInput(BuildContext context) {
+    var height = Theme.of(context).textTheme.bodyMedium!.fontSize!;
+    var padding = widget.size - height;
+    var hintStyle = TextTheme.of(context).bodyMedium;
+    hintStyle = hintStyle?.copyWith(color: hintStyle.color?.withAlpha(120));
+    final runs = composerTranslation?.translatedRuns ?? const [];
+    final scheme = Theme.of(context).colorScheme;
+    final rich = controller is RichTextEditingController
+        ? controller as RichTextEditingController
+        : null;
+    if (rich != null) {
+      final ranges = paragraphRanges(controller.text);
+      rich.paragraphTint = paragraphTintColor(scheme);
+      rich.paragraphTintRanges = [
+        for (final r in runs)
+          if (r.last < ranges.length)
+            TextRange(start: ranges[r.first].start, end: ranges[r.last].end)
+      ];
+    }
+    return Expanded(
+      child: Stack(
+        children: [
+          TapRegion(
+            onTapInside: (event) => onTextFocusChanged(),
+            child: TouchSelectionNormalizer(
+              controller: controller,
+              child: PrimarySelectionField(
+                controller: controller,
+                enabled: widget.enabled && !widget.isProcessing,
+                onChanged: onTextfieldUpdated,
+                child: TextField(
+                  focusNode: textFocus,
+                  onChanged: onTextfieldUpdated,
+                  controller: controller,
+                  scrollController: textScroll,
+                  readOnly: !widget.enabled || widget.isProcessing,
+                  textAlignVertical: TextAlignVertical.center,
+                  style: Theme.of(context).textTheme.bodyMedium!,
+                  maxLines: null,
+                  contextMenuBuilder: contextMenuBuilder,
+                  // Vommet: images from the keyboard (Gboard's clipboard strip,
+                  // keyboard GIFs and stickers) open the attachment preview.
+                  contentInsertionConfiguration: ContentInsertionConfiguration(
+                    allowedMimeTypes: keyboardImageMimeTypes,
+                    onContentInserted: onKeyboardContentInserted,
+                  ),
+                  keyboardType: TextInputType.multiline,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                      contentPadding: EdgeInsets.fromLTRB(8, padding / 2,
+                          4 + paragraphTagsReserve, padding / 2),
+                      border: InputBorder.none,
+                      isDense: true,
+                      hintStyle: hintStyle,
+                      hintText:
+                          widget.hintIcon == null ? widget.hintText : null,
+                      hint: widget.hintIcon == null || widget.hintText == null
+                          ? null
+                          : Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(widget.hintIcon,
+                                  size: (hintStyle?.fontSize ?? 14) + 2,
+                                  color: hintStyle?.color),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(widget.hintText!,
+                                    style: hintStyle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ])),
+                ),
+              ),
+            ),
+          ),
+          if (runs.isNotEmpty)
+            Positioned.fill(
+              child: ComposerParagraphMarks(
+                text: controller.text,
+                runs: runs,
+                editable: () => textFocus.context
+                    ?.findAncestorStateOfType<EditableTextState>(),
+                scrollController: textScroll,
+                onTapTag: openParagraphMenu,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Vommet: the message box's scroll, so the paragraph marks follow it.
+  final ScrollController textScroll = ScrollController();
+
+  /// Room at the right of the text for the "→ Spanish" tags.
+  double get paragraphTagsReserve {
+    final runs = composerTranslation?.translatedRuns ?? const [];
+    if (runs.isEmpty) return 0;
+    return paragraphTagsWidth(context, runs.map((r) => r.to));
+  }
+
+  Padding addAttachmentButton() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: tiamat.IconButton(
+          icon: Icons.add,
+          size: widget.size * widget.iconScale,
+          onPressed: addAttachment,
+        ),
+      ),
+    );
+  }
+
+  double get emotePickerHeight =>
+      (MediaQuery.of(context).size.height / (BuildConfig.MOBILE ? 2.5 : 3)) /
+      preferences.appScale.value;
+
+  Widget buildEmojiPicker({bool skipIfNeverOpened = true}) {
+    var recent = widget.client
+        .getComponent<RecentEmoticonComponent>()
+        ?.getRecentTypedEmoticon(widget.room);
+
+    var availableEmoji = widget.availibleEmoticons!.toList();
+
+    if (recent != null && recent.isNotEmpty) {
+      availableEmoji.insert(
+          0,
+          DynamicEmoticonPack(
+              identifier: "dynamic_pack_frequently_used_typing",
+              displayName: "Frequently Used",
+              icon: Icons.schedule,
+              emoticons: recent,
+              usage: EmoticonUsage.all));
+    }
+
+    return (!hasEmotePickerOpened && skipIfNeverOpened)
+        ? Container()
+        : EmoticonPicker(
+            emoji: availableEmoji,
+            emojiSearchFocus: emojiSearchFocus,
+            stickerSearchFocus: stickerSearchFocus,
+            gifSearchFocus: gifSearchFocus,
+            searchDelegate: (search) => AutofillUtils.searchEmoticon(search,
+                    client: widget.client, room: widget.room, limit: 50)
+                .whereType<AutofillSearchResultEmoticon>()
+                .toList(),
+            stickers: widget.availibleStickers ?? [],
+            onEmojiPressed: insertEmoticon,
+            packListAxis: BuildConfig.DESKTOP ? Axis.vertical : Axis.horizontal,
+            onImportPressed: () {
+              final account = widget.client.getComponent<EmoticonComponent>();
+              if (account == null) return;
+              EmoticonImportDestinations.show(context, account,
+                  room: widget.room);
+            },
+            // Vommet issue 731.
+            onManagePressed: () => LibraryPage.open(context, widget.client),
+            manageTooltip: LibraryPage.promptManage,
+            allowGifSearch:
+                widget.showGifSearch && preferences.tenorGifSearchEnabled.value,
+            showGifs: widget.showGifSearch,
+            gifComponent: widget.gifComponent,
+            onStickerPressed: (emoticon) {
+              widget.sendSticker?.call(emoticon);
+              setState(() {
+                clearKeyboardOverride(debounce: false);
+              });
+            },
+            onFavoritePicked: (gif) async {
+              await widget.sendFavoriteGif?.call(gif);
+              setState(() {
+                clearKeyboardOverride(debounce: false);
+              });
+            },
+            onGifPressed: (gif) async {
+              await widget.sendGif?.call(gif);
+              setState(() {
+                clearKeyboardOverride(debounce: false);
+              });
+            });
+  }
+
+  /// Vommet: what the keyboard may insert (Android's Commit Content API).
+  /// Images only; everything goes through the attachment preview.
+  static const keyboardImageMimeTypes = [
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+  ];
+
+  Future<void> onKeyboardContentInserted(
+      KeyboardInsertedContent content) async {
+    final data = content.data;
+    if (data == null || data.isEmpty) return;
+    if (!keyboardImageMimeTypes.contains(content.mimeType)) return;
+
+    await handlePickedAttachment(PendingFileAttachment(
+        name: "image.${content.mimeType.split("/").last}",
+        mimeType: content.mimeType,
+        size: data.lengthInBytes,
+        data: data));
+  }
+
+  Future<void> handlePickedAttachment(PendingFileAttachment attachment) async {
+    if (await widget.checkAttachment?.call(attachment) == false) return;
+
+    if (mounted) {
+      var processedFile = await AdaptiveDialog.show<PendingFileAttachment>(
+        scrollable: false,
+        context,
+        builder: (context) {
+          return AttachmentProcessor(
+            attachment: attachment,
+          );
+        },
+      );
+
+      if (processedFile != null) {
+        widget.addAttachment?.call(processedFile);
+      }
+    }
+  }
+
+  void addAttachment() async {
+    var pickers = [
+      if (PlatformUtils.isAndroid)
+        AttachmentPicker(
+            icon: Icons.photo,
+            label: "Gallery",
+            execute: () async {
+              var picker = ImagePicker();
+              var result = await picker.pickMultiImage();
+              for (var file in result) {
+                var data = await file.readAsBytes();
+                await handlePickedAttachment(PendingFileAttachment(
+                    name: file.name,
+                    mimeType: file.mimeType,
+                    size: data.lengthInBytes,
+                    data: data));
+              }
+            }),
+      AttachmentPicker(
+          icon: Icons.attach_file,
+          label: "File",
+          execute: () async {
+            // Vommet issue 410: read files after the size check, not all of
+            // them up front (a 1 GB video could take the app down first).
+            // Web has no paths, so it still gets the bytes from the picker.
+            FilePickerResult? result = await FilePicker.platform.pickFiles(
+                type: FileType.any,
+                withData: PlatformUtils.isWeb,
+                allowMultiple: true);
+            if (result == null) return;
+
+            for (var file in result.files) {
+              final path = PlatformUtils.isWeb ? null : file.path;
+              if (path == null && file.bytes == null) continue;
+
+              var attachment = PendingFileAttachment(
+                  name: file.name,
+                  path: path,
+                  data: file.bytes,
+                  size: file.size);
+
+              if (await widget.checkAttachment?.call(attachment) == false) {
+                continue;
+              }
+              // Like dropped files: big ones stay on disk until they're sent.
+              if (attachment.data == null && file.size < 50000000) {
+                final mimeType = attachment.mimeType;
+                await attachment.resolve();
+                attachment.mimeType ??= mimeType;
+              }
+
+              await handlePickedAttachment(attachment);
+            }
+          }),
+      if (PlatformUtils.isAndroid && preferences.developerMode.value)
+        AttachmentPicker(
+            icon: Icons.perm_media,
+            label: "Media",
+            execute: () async {
+              var picker = ImagePicker();
+              var result = await picker.pickMultipleMedia();
+              for (var file in result) {
+                var data = await file.readAsBytes();
+                await handlePickedAttachment(PendingFileAttachment(
+                    name: file.name,
+                    mimeType: file.mimeType,
+                    size: data.lengthInBytes,
+                    data: data));
+              }
+            }),
+      if (PlatformUtils.isAndroid)
+        AttachmentPicker(
+            icon: Icons.camera_alt,
+            label: "Take a photo",
+            execute: () async {
+              var picker = ImagePicker();
+              var file = await picker.pickImage(source: ImageSource.camera);
+              if (file == null) return;
+
+              var data = await file.readAsBytes();
+              await handlePickedAttachment(PendingFileAttachment(
+                  name: file.name,
+                  mimeType: file.mimeType,
+                  size: data.lengthInBytes,
+                  data: data));
+            }),
+    ];
+
+    // Vommet phone composer round 3: on phones the + sheet also holds the
+    // "Formatting toolbar" switch and "Translate this room".
+    final extras = <AttachmentPicker>[
+      if (MediaQuery.of(context).mobile) ...[
+        if (translateRoomPicker() case final picker?) picker,
+        FormattingToolbarSwitch(),
+      ],
+    ];
+
+    // Vommet issue 615: iOS gets the standard action sheet (photo library,
+    // camera, Files) instead of going straight to the Files picker.
+    if (!PlatformUtils.isWeb &&
+        Theme.of(context).platform == TargetPlatform.iOS) {
+      await showIosAttachmentSheet(pickers.firstWhere((p) => p.label == "File"),
+          extras: extras);
+      return;
+    }
+
+    pickers = [...pickers, ...extras];
+    if (pickers.length == 1) {
+      pickers.first.execute();
+    } else {
+      final picker = await AdaptiveDialog.pickOne(context,
+          items: pickers,
+          itemBuilder: (context, item, onTapped) =>
+              item is FormattingToolbarSwitch
+                  ? const FormattingToolbarSwitchRow()
+                  : SizedBox(
+                      height: 50,
+                      child: tiamat.TextButton(
+                        item.label,
+                        icon: item.icon,
+                        onTap: onTapped,
+                      ),
+                    ));
+
+      picker?.execute();
+    }
+  }
+
+  /// "Translate this room" / "Stop translating this room" in the + sheet;
+  /// null where translation can't run.
+  AttachmentPicker? translateRoomPicker() {
+    final room = widget.room;
+    if (room == null || composerTranslation == null) return null;
+    final rooms = RoomTranslation.instance;
+    final on = rooms.isOn(room.identifier);
+    return AttachmentPicker(
+        icon: Icons.translate,
+        label: on ? "Stop translating this room" : "Translate this room",
+        execute: () => rooms.setOn(room.identifier, !on));
+  }
+
+  Future<void> showIosAttachmentSheet(AttachmentPicker filePicker,
+      {List<AttachmentPicker> extras = const []}) async {
+    final action = await showCupertinoModalPopup<Function()>(
+        context: context,
+        builder: (context) => CupertinoActionSheet(
+              actions: [
+                CupertinoActionSheetAction(
+                    onPressed: () =>
+                        Navigator.of(context).pop(pickFromPhotoLibrary),
+                    child: const Text("Photo Library")),
+                CupertinoActionSheetAction(
+                    onPressed: () => Navigator.of(context)
+                        .pop(() => captureFromCamera(video: false)),
+                    child: const Text("Take Photo")),
+                CupertinoActionSheetAction(
+                    onPressed: () => Navigator.of(context)
+                        .pop(() => captureFromCamera(video: true)),
+                    child: const Text("Record Video")),
+                CupertinoActionSheetAction(
+                    onPressed: () =>
+                        Navigator.of(context).pop(filePicker.execute),
+                    child: const Text("Choose File")),
+                for (final extra in extras)
+                  CupertinoActionSheetAction(
+                      onPressed: () => Navigator.of(context).pop(extra.execute),
+                      child: Text(extra is FormattingToolbarSwitch
+                          ? (preferences.formattingToolbar.value
+                              ? "Hide Formatting Toolbar"
+                              : "Show Formatting Toolbar")
+                          : extra.label)),
+              ],
+              cancelButton: CupertinoActionSheetAction(
+                  isDefaultAction: true,
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Cancel")),
+            ));
+
+    await action?.call();
+  }
+
+  Future<void> pickFromPhotoLibrary() async {
+    final files = await ImagePicker().pickMultipleMedia();
+    for (final file in files) {
+      await handlePickedXFile(file);
+    }
+  }
+
+  Future<void> captureFromCamera({required bool video}) async {
+    final picker = ImagePicker();
+    final file = video
+        ? await picker.pickVideo(source: ImageSource.camera)
+        : await picker.pickImage(source: ImageSource.camera);
+    if (file == null) return;
+
+    await handlePickedXFile(file);
+  }
+
+  Future<void> handlePickedXFile(XFile file) async {
+    // Like dropped files: big ones (long videos) stay on disk until sent.
+    final size = await file.length();
+    final data = size < 50000000 ? await file.readAsBytes() : null;
+
+    await handlePickedAttachment(PendingFileAttachment(
+        name: file.name,
+        path: file.path,
+        mimeType: file.mimeType,
+        size: size,
+        data: data));
+  }
+
+  void doCancelInteraction() {
+    if (widget.interactionType == EventInteractionType.edit) {
+      controller.clear();
+    }
+
+    widget.cancelReply?.call();
+  }
+
+  void insertEmoticon(Emoticon emote) {
+    if (widget.room != null) {
+      var recents = widget.client.getComponent<RecentEmoticonComponent>();
+      recents?.typedEmoticon(widget.room!, emote);
+    }
+
+    var text = controller.text;
+    var selection = controller.selection;
+    int start = selection.start;
+    int end = selection.end;
+    String slug = emote.slug;
+
+    // Vommet issue 483: no forced spaces around custom emoji, so they can sit
+    // inside a word; typed shortcodes are replaced there on send as well.
+    if (start == -1 && end == -1) {
+      controller.text = text + slug;
+      return;
+    }
+
+    controller.text = text.replaceRange(start, end, slug);
+    var newOffset = start + slug.length;
+    controller.selection =
+        TextSelection(baseOffset: newOffset, extentOffset: newOffset);
+  }
+
+  Widget translateChip() {
+    final t = composerTranslation!;
+    final caret = controller.selection.isValid
+        ? controller.selection.extentOffset
+        : controller.text.length;
+    final line = paragraphAt(controller.text, caret);
+    final here = line < t.resolved.length ? t.resolved[line] : null;
+    return ComposerTranslateChip(
+      language: here ?? t.target,
+      busy: t.busy,
+      active: here != null,
+      onTap: onTranslateChipTap,
+      onPickLanguage: openParagraphMenu,
+    );
+  }
+
+  List<Widget> translationLines() {
+    final t = composerTranslation;
+    if (t == null) return const [];
+    final suggested = widget.enabled ? t.suggestedLanguage : null;
+    return [
+      if (suggested != null)
+        ComposerTranslationSuggestion(
+          language: suggested,
+          onTranslate: t.acceptSuggestion,
+          onDismiss: t.dismissSuggestion,
+        ),
+      if (t.error != null) ComposerTranslationError(t.error!),
+      if (t.translated case (:final original, :final to, targets: _))
+        ComposerTranslatedLine(
+          to: to,
+          original: original,
+          onHide: t.hideLine,
+          onUndo: undoTranslation,
+        ),
+    ];
+  }
+
+  Widget interactionText() {
+    // Vommet: with the quote and card reply styles the strip matches them.
+    if (widget.interactionType == EventInteractionType.reply &&
+        ReplyStyle.current.inline) {
+      return replyStrip();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 0, 4),
+      child: SizedBox(
+        height: 24,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: tiamat.IconButton(
+                icon: Icons.cancel_outlined,
+                size: 16,
+                onPressed: doCancelInteraction,
+              ),
+            ),
+            Icon(widget.interactionType == EventInteractionType.reply
+                ? Icons.keyboard_arrow_right_rounded
+                : widget.interactionType == EventInteractionType.edit
+                    ? Icons.edit
+                    : null),
+            tiamat.Text.name(
+              widget.relatedEventSenderName!,
+              color: widget.relatedEventSenderColor,
+            ),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+                child: tiamat.Text(
+                  widget.relatedEventBody ?? "Unknown",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Vommet: "Reply to <name>" over the quoted text, with a bar in their
+  /// colour and an X to stop replying.
+  Widget replyStrip() {
+    final scheme = Theme.of(context).colorScheme;
+    final color = tiamat.Text.adjustColor(
+        context, widget.relatedEventSenderColor ?? scheme.primary);
+    return Padding(
+      key: const ValueKey("composer-reply-strip"),
+      padding: const EdgeInsets.fromLTRB(8, 0, 4, 6),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(Icons.reply, size: 20, color: scheme.primary),
+            ),
+            Container(
+              width: 3,
+              decoration: BoxDecoration(
+                  color: color, borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  tiamat.Text.name(
+                    replyStripTitle(widget.relatedEventSenderName ?? ""),
+                    color: widget.relatedEventSenderColor,
+                  ),
+                  tiamat.Text(
+                    widget.relatedEventBody ?? "",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+            Center(
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: tiamat.IconButton(
+                  icon: Icons.close,
+                  size: 18,
+                  onPressed: doCancelInteraction,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String replyStripTitle(String name) => Intl.message("Reply to $name",
+      name: "replyStripTitle",
+      args: [name],
+      desc:
+          "Above the message box while writing a reply: who you are replying to");
+
+  Widget displayAttachments() {
+    return SizedBox(
+      child: Row(
+        children: widget.attachments!.map((e) {
+          return Padding(
+            padding: const EdgeInsets.all(2.0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: GestureDetector(
+                onTap: () {},
+                child: SizedBox(
+                  height: 40,
+                  width: 40,
+                  child: AttachmentIcon(
+                    e,
+                    removeAttachment: () => widget.removeAttachment?.call(e),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget contextMenuBuilder(
+      BuildContext buildContext, EditableTextState editableTextState) {
+    var formatMenu = formatting.mobileContextMenu(editableTextState);
+    if (formatMenu != null) return formatMenu;
+
+    final toolbar = AdaptiveTextSelectionToolbar.editable(
+      anchors: editableTextState.contextMenuAnchors,
+      clipboardStatus: ClipboardStatus.pasteable,
+      // to apply the normal behavior when click on copy (copy in clipboard close toolbar)
+      // use an empty function `() {}` to hide this option from the toolbar
+      onCopy: () =>
+          editableTextState.copySelection(SelectionChangedCause.toolbar),
+      // to apply the normal behavior when click on cut
+      onCut: () =>
+          editableTextState.cutSelection(SelectionChangedCause.toolbar),
+      onPaste: () async {
+        if (await attachFilesFromClipboard()) {
+          editableTextState.hideToolbar();
+          return;
+        }
+
+        var clipboard = await Clipboard.getData("text/plain");
+
+        if (clipboard != null) {
+          return editableTextState.pasteText(SelectionChangedCause.toolbar);
+        }
+
+        editableTextState.hideToolbar();
+
+        // Vommet: Android too ("Copy image", or an image copied in
+        // another app).
+        if (BuildConfig.DESKTOP || PlatformUtils.isAndroid) {
+          await readImageFromClipboard();
+        }
+      },
+      // to apply the normal behavior when click on select all
+      onSelectAll: () =>
+          editableTextState.selectAll(SelectionChangedCause.toolbar),
+      onLiveTextInput: null, onLookUp: null, onSearchWeb: null,
+      onShare: null,
+    );
+
+    // Vommet: spellcheck suggestions above the edit actions.
+    return SpellcheckContextMenu.wrap(
+        editableTextState, controller as RichTextEditingController, toolbar);
+  }
+
+  /// Ctrl+V: copied files become attachments; anything else pastes as
+  /// before (text into the field, an image as an attachment).
+  Future<void> pasteFromKeyboard() async {
+    if (await attachFilesFromClipboard()) return;
+
+    final focus = textFocus.context;
+    if (focus != null && focus.mounted) {
+      Actions.maybeInvoke(
+          focus, const PasteTextIntent(SelectionChangedCause.keyboard));
+    }
+    await readImageFromClipboard();
+  }
+
+  /// Attaches files copied in a file manager. False when there were none.
+  Future<bool> attachFilesFromClipboard() async {
+    final paths = await ClipboardFiles.read();
+    if (paths.isEmpty) return false;
+
+    final loaded = await FileTransfer.loadPaths(paths);
+    for (final attachment in loaded.files) {
+      await handlePickedAttachment(attachment);
+    }
+    if (mounted) FileTransfer.showUnreadable(context, loaded.unreadable);
+    return true;
+  }
+
+  /// Vommet: set on the web, where pasting is a DOM event (see [WebPaste]).
+  void Function()? stopWebPaste;
+
+  Future<void> readImageFromClipboard() async {
+    // The web gets pasted pictures from the paste event instead.
+    if (kIsWeb) return;
+
+    var image = await ImageClipboard.read();
+    if (image == null) {
+      return;
+    }
+
+    await attachPastedImage(image);
+  }
+
+  Future<void> attachPastedImage(Uint8List image) async {
+    var processedAttachment =
+        await AdaptiveDialog.show<PendingFileAttachment>(context,
+            scrollable: false,
+            builder: (context) => AttachmentProcessor(
+                  attachment:
+                      PendingFileAttachment(data: image, size: image.length),
+                ));
+
+    if (processedAttachment != null) {
+      setState(() {
+        widget.addAttachment?.call(processedAttachment);
+      });
+    }
+  }
+
+  void onPopped(ScopePopped event) {
+    if (event.handled) {
+      return;
+    }
+
+    if (event.currentMobileSide == RevealSide.left) {
+      return;
+    }
+
+    if (showEmotePicker) {
+      clearKeyboardOverride(debounce: false);
+      event.handled = true;
+    }
+  }
+}
