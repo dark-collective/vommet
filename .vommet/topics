@@ -1,0 +1,768 @@
+# Vommet topic branches: work that is not on main yet.
+# testing = main + a --no-ff merge of each, in this order.
+#
+#   <branch>                 based on main
+#   <branch> after <parent>  based on another topic (use this when two topics
+#                            touch the same lines, so the resolution lives in
+#                            the child branch instead of being redone on every
+#                            sync; the parent must be listed first)
+#   <branch> overlay         based on testing itself: for one change that spans
+#                            many topics (e.g. making their strings
+#                            translatable). Replayed onto the regenerated
+#                            testing and merged last; list overlays after
+#                            every regular topic. Its commits are the
+#                            single-parent commits above the testing merge it
+#                            was built on.
+#
+# Remove a line when its branch merges into main.
+chore/branding
+chore/fork-settings
+fix/commet-badges-display-only after chore/fork-settings
+ci/version-label
+ci/android-apk
+ci/flatpak
+feat/room-picker-search
+feat/forward-messages after feat/room-picker-search
+feat/message-drafts after feat/forward-messages
+feat/telegram-sticker-import after chore/fork-settings
+feat/room-banners
+feat/banner-headers after feat/room-banners
+fix/space-avatar-viewer after feat/banner-headers
+feat/banner-panes after fix/space-avatar-viewer
+feat/member-panel-tabs after feat/banner-panes
+fix/member-list-recently-active after feat/banner-panes
+fix/member-list-unknown-presence after fix/member-list-recently-active
+feat/desktop-copy-selection
+feat/media-mosaic after feat/desktop-copy-selection
+feat/space-remove-room
+feat/voice-messages
+feat/personal-packs after feat/telegram-sticker-import
+fix/own-push-gateway
+ci/fork-invariants after ci/version-label
+fix/linux-app-id
+feat/sso-first-login
+feat/gradient-themes
+ci/integration-tests after ci/fork-invariants
+fix/notification-fallback
+feat/discover after ci/integration-tests
+fix/directory-empty-message after feat/discover
+feat/sliding-sync
+fix/voip-late-joiner-tiles
+fix/sticker-picker-resolution
+fix/image-fullres-cache after fix/sticker-picker-resolution
+fix/missing-media after fix/image-fullres-cache
+fix/sticker-picker-blanks after fix/missing-media
+ci/integration-mosaic after feat/discover
+fix/room-preview-deleted
+perf/startup-postload-queue
+fix/banner-thumbnail-scale
+feat/welcome-first-login
+fix/startup-splash-until-loaded after perf/startup-postload-queue
+ci/integration-banners after ci/integration-mosaic
+ci/utd-integration after ci/integration-banners
+ci/integration-dm-order after ci/utd-integration
+ci/unread-dot-integration after ci/utd-integration
+perf/lazy-home-room-list after perf/startup-postload-queue
+perf/postload-keep-ui-responsive after perf/startup-postload-queue
+feat/screenshare-audio-linux after fix/voip-late-joiner-tiles
+fix/accept-dm-invite
+feat/telemetry after perf/lazy-home-room-list
+fix/first-sync-wait after feat/telemetry
+feat/dm-toggle-and-menu-tooltips
+fix/profile-nickname-others after feat/dm-toggle-and-menu-tooltips
+feat/voice-isolation after feat/screenshare-audio-linux
+fix/android-onaddtrack-race after feat/voice-isolation
+fix/linux-video-tile-garbage after fix/android-onaddtrack-race
+feat/voice-quick-controls after feat/voice-isolation
+feat/quick-profile-controls after feat/voice-quick-controls
+feat/quick-audio-output after feat/quick-profile-controls
+fix/quick-card-banner after feat/quick-audio-output
+fix/quick-card-status after fix/quick-card-banner
+fix/quick-audio-toggle-refresh after fix/quick-card-status
+feat/native-oidc after feat/sso-first-login
+feat/create-account after feat/native-oidc
+feat/telemetry-capture after feat/telemetry
+fix/telemetry-consent-look after feat/telemetry
+feat/telemetry-exit-reason after feat/telemetry-capture
+feat/telemetry-native-trace after feat/telemetry-exit-reason
+feat/telemetry-timeline after feat/telemetry-native-trace
+feat/telemetry-call-leave after feat/telemetry-timeline
+feat/telemetry-errcode after feat/telemetry-call-leave
+feat/telemetry-crypto after feat/telemetry-errcode
+fix/telemetry-version-label after feat/telemetry-crypto
+feat/telemetry-notify after fix/telemetry-version-label
+feat/telemetry-experiments after feat/telemetry-notify
+fix/telemetry-experiments-enum after feat/telemetry-experiments
+feat/whats-new after feat/telemetry-native-trace
+perf/lazy-side-room-lists
+ci/xplat after ci/integration-tests
+feat/screenshare-audio-picker after feat/screenshare-audio-linux
+fix/screenshare-audio-app-names after feat/screenshare-audio-picker
+fix/screenshare-audio-wayland-order after fix/screenshare-audio-app-names
+feat/screenshare-audio-stereo after fix/screenshare-audio-wayland-order
+fix/screenshare-one-at-a-time after feat/screenshare-audio-stereo
+fix/call-view-follow-replaced-stream after fix/screenshare-one-at-a-time
+fix/android-screenshare-errors after fix/call-view-follow-replaced-stream
+fix/startup-launch-test after ci/integration-tests
+fix/room-view-dispose-races
+feat/matrix-links
+fix/call-join-retry
+feat/msc3160-timestamps
+feat/offline-sending after feat/msc3160-timestamps
+feat/room-calls after feat/msc3160-timestamps
+feat/room-calls-start after feat/room-calls
+feat/multi-sfu after feat/room-calls-start
+fix/room-list-duplicates
+fix/profile-menu-clear
+fix/sidebar-drag-desktop
+feat/sidebar-pinned-rooms after fix/sidebar-drag-desktop
+fix/history-gap-after-join after feat/sidebar-pinned-rooms
+feat/image-save-and-viewer
+feat/copy-image after feat/image-save-and-viewer
+fix/unifiedpush-distributor-picker
+fix/unifiedpush-startup-check after fix/unifiedpush-distributor-picker
+fix/unifiedpush-count-pushes after fix/unifiedpush-startup-check
+fix/decrypt-display-refresh
+fix/restore-backup-download
+fix/edit-selection-mobile
+feat/voice-room-badge
+feat/sidebar-subspace-guides after feat/voice-room-badge
+perf/profile-cache
+feat/android-share-target
+fix/dm-order-after-accept
+fix/long-name-edit-overflow
+fix/html-font-color
+fix/notify-silence-active-chat
+fix/push-account-routing
+fix/pusher-housekeeping
+feat/telemetry-notify-counts after fix/telemetry-experiments-enum
+feat/telemetry-name-tag after feat/telemetry-notify-counts
+fix/sharp-profile-avatar
+fix/call-keyboard-strip after feat/multi-sfu
+fix/selection-tap-outside after fix/edit-selection-mobile
+fix/space-icon-opens-home
+feat/space-page-subspace-cards
+feat/manage-space-rooms after feat/banner-panes
+fix/linux-image-fullres after fix/sticker-picker-blanks
+feat/lightbox-gallery after feat/copy-image
+feat/strip-metadata-explained
+feat/encryption-markers after fix/edit-selection-mobile
+feat/dm-trust-warnings after feat/encryption-markers
+feat/experiments-reset-defaults
+feat/voice-room-chat-access after feat/sidebar-subspace-guides
+feat/secure-setup
+feat/room-threads after feat/member-panel-tabs
+feat/block-users after fix/profile-nickname-others
+ci/integration-threads-block after ci/integration-banners
+feat/org-italics
+feat/call-button-states after feat/room-calls-start
+feat/format-popup after feat/org-italics
+ci/integration-encryption-trust after ci/integration-dm-order
+fix/poll-view-crash
+fix/call-mute-button after feat/multi-sfu
+feat/push-rules-explained
+feat/mark-space-read after feat/manage-space-rooms
+fix/image-load-retry after fix/linux-image-fullres
+fix/mosaic-no-upscale after feat/media-mosaic
+fix/foreground-push-encrypted after fix/push-account-routing
+feat/telemetry-perf-v11 after feat/telemetry-name-tag
+feat/sidebar-voice-presence after feat/voice-room-chat-access
+fix/presence-close-race after feat/quick-profile-controls
+feat/notification-account-label after fix/foreground-push-encrypted
+fix/edit-preview-text
+fix/sticker-room-startup
+fix/membership-rejoin-label
+fix/topic-field-height
+fix/room-state-view-freeze
+feat/space-overview-rooms after feat/manage-space-rooms
+feat/rail-unread-dms after feat/banner-panes
+feat/per-call-audio after fix/quick-audio-toggle-refresh
+fix/room-notify-setting-honest
+feat/date-divider-labels
+fix/voice-room-mark-plain after feat/sidebar-voice-presence
+feat/rail-call-badges after fix/voice-room-mark-plain
+fix/home-dm-empty-state after perf/lazy-side-room-lists
+fix/leave-call-keeps-mic after fix/call-mute-button
+fix/mention-pill-indent
+fix/mosaic-stale-children after fix/mosaic-no-upscale
+fix/self-speaking-local-level after fix/voice-room-mark-plain
+fix/voice-participant-indent after fix/voice-room-mark-plain
+fix/27-reply-highlight-fades
+fix/highlight-mentions
+feat/in-app-notification-banners
+feat/key-export
+feat/power-level-tags
+feat/telemetry-sync-phases after feat/telemetry-perf-v11
+fix/69-space-nicknames after feat/telemetry-sync-phases
+fix/album-animated-transparent
+fix/attempt-decrypt
+fix/homeserver-support-link
+fix/last-room-per-space after fix/space-icon-opens-home
+fix/long-space-name-chevron
+fix/open-joined-space-link
+fix/307-open-top-level-space after fix/open-joined-space-link
+fix/reaction-who-reacted
+fix/send-button-after-emoji
+fix/sidebar-names-one-line after fix/voice-participant-indent
+fix/voice-speaking-ring-edge after fix/voice-participant-indent
+fix/sidebar-scroll-anchor after feat/banner-panes
+feat/notification-sounds after feat/per-call-audio
+feat/widget-picker after ci/fork-invariants
+fix/39-login-mxid-homeserver
+fix/encrypted-room-creation
+fix/login-field-errors
+feat/composer-notice
+feat/banned-room-footer after feat/composer-notice
+feat/update-notice
+fix/stream-codec-h264
+fix/url-preview-numeric-og
+feat/splash-messages after fix/startup-splash-until-loaded
+feat/last-room-mobile-persist after fix/last-room-per-space
+feat/select-messages after feat/forward-messages
+feat/thread-cards after feat/room-threads
+feat/telemetry-db-timers after fix/69-space-nicknames
+fix/call-double-join after fix/leave-call-keeps-mic
+fix/rtc-membership-refresh after feat/multi-sfu
+feat/experiments-opt-out
+fix/75-cache-management
+feat/75-auto-download after fix/75-cache-management
+feat/blocked-dm-footer after feat/composer-notice
+feat/blocked-dm-badge after feat/sidebar-subspace-guides
+feat/mutual-rooms
+fix/call-avatar-resolution
+fix/download-size-unknown
+fix/file-cache-after-close
+fix/media-empty-body-caption
+fix/telemetry-network-errors after feat/telemetry-db-timers
+feat/telemetry-image-cache after fix/telemetry-network-errors
+feat/telemetry-resume after feat/telemetry-image-cache
+perf/drift-db-fragment-cache after feat/sliding-sync
+refactor/vommet-preferences-mixin
+feat/blocked-dm-call after feat/call-button-states
+chore/call-track-diagnostics
+ci/github-android after ci/android-apk
+ci/linux-github after ci/flatpak
+feat/dev-hidden-events
+feat/log-filter
+feat/member-list-in-call after feat/member-panel-tabs
+feat/rail-unread-pill after refactor/vommet-preferences-mixin
+perf/sdk-key-upload-gate after perf/drift-db-fragment-cache
+feat/shared-history after perf/sdk-key-upload-gate
+feat/telemetry-v17-debug after feat/telemetry-resume
+fix/notify-missing-room
+fix/space-room-unread-dot after fix/voice-speaking-ring-edge
+fix/subspace-overview-previews after feat/space-page-subspace-cards
+fix/subspace-room-previews
+perf/presence-db-flood after fix/presence-close-race
+perf/room-event-no-reread after fix/room-preview-deleted
+ci/github-integration after ci/integration-tests
+feat/space-join-picker after feat/mark-space-read
+feat/leave-room-menu after feat/space-join-picker
+feat/log-export after feat/log-filter
+feat/output-volume-settings after feat/notification-sounds
+feat/profile-timezone-picker
+feat/settings-search
+fix/sticker-picker-refresh after feat/personal-packs
+feat/sticker-bulk-import after fix/sticker-picker-refresh
+feat/stream-watching after feat/notification-sounds
+feat/stream-person-tiles after feat/stream-watching
+fix/stale-publication-tile after feat/stream-watching
+fix/blade-tabs-scrollbar after feat/member-panel-tabs
+fix/space-folder-drag after feat/sidebar-pinned-rooms
+fix/space-rail-join-leave after feat/banned-room-footer
+fix/voice-room-preview-icon
+feat/shared-history-send after feat/shared-history
+feat/telemetry-ss-resets after feat/telemetry-v17-debug
+fix/call-overlay-default-off
+fix/folder-unread-pill after fix/space-folder-drag
+perf/batched-room-state after perf/postload-keep-ui-responsive
+fix/overlay-material-hover after feat/update-notice
+fix/task-tile-edge after feat/sticker-bulk-import
+feat/telemetry-ui-stall after feat/telemetry-ss-resets
+feat/telemetry-startup-trace after feat/telemetry-ui-stall
+fix/history-empty-pause after feat/member-list-in-call
+feat/push-to-talk after feat/output-volume-settings
+fix/calendar-sync-room-list
+fix/leave-call-background-state
+feat/replace-room after feat/banned-room-footer
+fix/room-avatar-remove
+perf/space-list-timer
+feat/telemetry-reply-lookup after feat/telemetry-startup-trace
+feat/widgets-blade-tab after feat/room-threads
+feat/widget-view-only after feat/widget-picker
+feat/member-list-subtitle after feat/member-list-in-call
+feat/space-invite-rooms after feat/leave-room-menu
+fix/explore-voice-room-avatar after feat/discover
+fix/fw-wayland-portal after fix/linux-video-tile-garbage
+feat/screenshare-app-or-screen after fix/android-screenshare-errors
+feat/own-stream-tile after feat/stream-person-tiles
+feat/telemetry-call-tracks after feat/telemetry-reply-lookup
+perf/sdk-direct-chats-cache after feat/shared-history-send
+perf/sidebar-count-coalesce
+perf/space-color-scheme-once
+ci/image-pipewire after ci/utd-integration
+feat/shared-history-note after feat/shared-history-send
+fix/home-list-bottom-inset after perf/lazy-home-room-list
+feat/language-setting
+perf/room-event-router
+feat/current-theme-name after feat/gradient-themes
+fix/space-title-phone after feat/banner-panes
+feat/bridged-gif-autoplay after feat/75-auto-download
+feat/file-image-preview
+feat/invite-preview after feat/block-users
+fix/call-unmute-dead after fix/call-double-join
+feat/drawpile-widget after feat/widget-view-only
+fix/557-drawpile-own-server after feat/drawpile-widget
+feat/sliding-sync-default-on after feat/experiments-opt-out
+fix/android-renderer-choice
+fix/widget-remote-ipv4
+fix/widget-runner-stderr
+feat/message-hover-bar
+feat/personal-pins after feat/shared-history-note
+fix/android-back-exits
+fix/auto-download-file-media after feat/75-auto-download
+fix/widget-close-sessions-copy
+feat/theme-cards-nordic after feat/current-theme-name
+feat/theme-editor after feat/theme-cards-nordic
+feat/theme-editor-background after feat/theme-editor
+fix/landscape-phone-layout
+feat/bare-domain-links after feat/settings-search
+feat/app-font
+fix/theme-zip-path-check
+feat/voice-transcription after feat/voice-messages
+fix/unifiedpush-distributor-prompt after fix/unifiedpush-count-pushes
+fix/508-android-read-elsewhere-push after fix/unifiedpush-distributor-prompt
+fix/call-leftovers-and-errors after fix/leave-call-background-state
+fix/linux-notification-markup
+feat/crop-attachment
+feat/theme-light-dark after feat/theme-editor-background
+fix/bold-text-everywhere
+fix/linkify-keeps-following-space
+fix/system-bar-icons-follow-theme after feat/app-font
+fix/matrix-to-link-without-fragment
+feat/unified-chat-list after feat/experiments-opt-out
+fix/settings-panel-full-height after feat/settings-search
+fix/sharp-room-avatar
+fix/shortcuts-tab-when-unsupported
+feat/pinned-message-bar after feat/personal-pins
+fix/touch-tap-ignores-stuck-shift after fix/selection-tap-outside
+fix/jump-to-latest-live-timeline
+fix/state-event-group-and-member-card
+fix/thread-media-stays-in-thread after feat/room-threads
+fix/331-minimize-on-close-quit
+feat/linux-tray after fix/331-minimize-on-close-quit
+feat/linux-tray-search after feat/settings-search
+fix/309-svg-avatars after fix/banner-thumbnail-scale
+fix/322-reply-in-thread-focus after feat/room-threads
+fix/342-shortcut-avatar
+fix/ios-macos-build
+feat/reply-to-last-shortcut
+fix/308-sidebar-screen-reader-labels
+fix/321-remove-failed-account
+fix/326-host-system-info
+fix/335-account-prefix-trailing-space
+fix/352-angle-bracket-links
+fix/360-event-search
+fix/calendar-overnight-blocks
+fix/windows-instance-ids
+feat/306-deleted-placeholder after fix/room-preview-deleted
+fix/305-login-autofill after fix/login-field-errors
+fix/311-superseded-dms after feat/replace-room
+fix/329-avif-images after feat/file-image-preview
+fix/330-emote-edits-rebased after feat/msc3160-timestamps
+fix/332-join-error after fix/bold-text-everywhere
+fix/340-flatpak-network-portal-rebased after feat/linux-tray
+fix/341-kicked-members after fix/history-empty-pause
+fix/audio-mime-params after feat/voice-messages
+fix/huge-preview-image after fix/url-preview-numeric-og
+fix/presence-signed-out-accounts after fix/presence-close-race
+feat/362-dm-search after fix/home-dm-empty-state
+feat/image-markup-redact after feat/crop-attachment
+feat/keyboard-image-insert after feat/encryption-markers
+fix/323-settings-current-account
+fix/328-flatpak-file-drop after feat/copy-image
+fix/348-quit-button after fix/331-minimize-on-close-quit
+fix/361-device-info-privacy after fix/326-host-system-info
+fix/384-gtk-titlebar-theme after feat/theme-light-dark
+fix/http-homeserver after fix/login-field-errors
+fix/verify-keyless-session
+feat/chat-list-folders after feat/unified-chat-list
+feat/forward-picker-spaces after feat/forward-messages
+fix/366-clear-marked-unread-rebased after feat/306-deleted-placeholder
+fix/377-url-preview-placeholder-rebased after fix/352-angle-bracket-links
+fix/414-contributing-llm-policy
+fix/424-read-receipts-close-on-dm
+fix/429-reply-needs-send-permission
+fix/433-gt-emoticon-not-quote after feat/format-popup
+fix/434-room-list-invite after feat/leave-room-menu
+fix/455-thread-typing-indicator
+fix/468-thread-close-keeps-panel-hidden after feat/room-threads
+fix/283-web-device-labels
+fix/285-hang-up-on-quit after fix/331-minimize-on-close-quit
+fix/304-log-ring-buffer
+fix/313-emoji-pack-qualified
+fix/324-web-webgl-check
+fix/333-enter-double-send
+fix/338-stream-unencrypted-videos
+fix/354-history-page-grow after feat/telemetry-reply-lookup
+fix/356-flatpak-codecs-extra
+fix/412-mac-paste-shortcut after fix/328-flatpak-file-drop
+fix/428-context-menu-fits-window
+fix/432-avatar-fallback
+fix/453-esc-closes-settings after fix/settings-panel-full-height
+fix/457-amoled-hover
+fix/479-publish-room-directory
+fix/485-composer-relisten after fix/322-reply-in-thread-focus
+fix/315-space-notify-note
+fix/410-upload-size-limit after fix/321-remove-failed-account
+fix/437-direct-invite-history after feat/space-invite-rooms
+fix/444-widgets-in-voice-rooms after feat/widgets-blade-tab
+fix/445-sharp-timeline-images after fix/image-load-retry
+fix/450-sticker-pack-sheet after feat/sticker-bulk-import
+fix/452-composer-menu-cursor
+fix/452-pointer-cursor-everywhere after fix/452-composer-menu-cursor
+fix/480-image-share after feat/lightbox-gallery
+fix/481-timeline-keyboard-scroll
+fix/483-shortcode-emoji-on-send
+fix/487-ctrl-enter-newline after fix/333-enter-double-send
+fix/494-poll-response-timeline
+feat/linux-widgets-webkit after feat/drawpile-widget
+fix/457-selected-shade
+fix/418-sidebar-rooms after feat/362-dm-search
+ci/pr-build-own-concurrency
+fix/connection-badge-debounce
+fix/widget-window-message-source
+ci/widget-nightly after fix/widget-window-message-source
+ci/widget-nightly-signin after ci/widget-nightly
+fix/widget-window-title
+fix/498-last-read-fallback
+fix/508-linux-clear-notifications
+fix/512-settings-sidebar-scroll
+fix/343-viewer-zoom-controls
+fix/dismiss-connection-badge after fix/connection-badge-debounce
+feat/widget-dock after feat/linux-widgets-webkit
+feat/widget-dock-windows after feat/widget-dock
+fix/327-room-co-owners after feat/replace-room
+fix/macos-widgets
+fix/501-animate-unfocused-android
+fix/verification-dialog-states
+fix/verify-responder-connecting after fix/verification-dialog-states
+feat/widget-dock-macos after feat/widget-dock-windows
+feat/93-friends-tab after feat/experiments-opt-out
+fix/browser-signin-link after feat/create-account
+fix/345-room-switch-slowdown
+fix/530-reply-media-caption
+feat/536-tray-unread-badge after feat/linux-tray
+feat/536-tray-unread-badge-search after feat/linux-tray-search
+fix/linux-direct-widgets-sab after feat/widget-dock-macos
+feat/luanti-widget after fix/linux-direct-widgets-sab
+fix/room-row-keys
+fix/555-own-name-refresh after fix/69-space-nicknames
+feat/default-notification-level after fix/room-notify-setting-honest
+fix/558-windows-voice-recording after feat/voice-messages
+fix/32-utd-auto-retry after ci/utd-integration
+feat/room-access-settings
+feat/room-permissions-complete
+feat/element-space-order
+fix/581-postload-after-sync after perf/batched-room-state
+feat/new-home after feat/93-friends-tab
+feat/new-home-people after feat/new-home
+feat/new-home-cards after feat/new-home-people
+fix/567-panel-swipe-back
+fix/569-edit-keeps-links after fix/330-emote-edits-rebased
+fix/select-messages-gestures after feat/select-messages
+fix/578-select-in-threads after fix/select-messages-gestures
+fix/601-search-from-only after fix/360-event-search
+fix/595-notification-open-room
+fix/598-leave-call-on-sleep
+fix/603-android-notification-actions
+fix/608-web-composer-focus-after-send
+fix/615-ios-attachment-sheet
+fix/616-status-bar-icon-brightness
+fix/617-password-enter-signin
+fix/623-attachment-reply
+fix/626-thread-message-menu
+fix/634-room-scroll-position
+fix/633-folder-drop-zone after fix/space-folder-drag
+fix/621-ios-keyboard-swipe-dismiss
+fix/641-swipe-to-reply
+fix/643-long-text-reaction
+fix/646-drop-to-hovered-composer after feat/room-threads
+fix/666-intentional-mentions
+fix/690-long-press-copy-link
+fix/687-mobile-pack-bar
+fix/688-long-pack-names
+fix/691-sidebar-create-room
+fix/704-thread-read-main-receipt after feat/room-threads
+fix/708-refocus-message-input
+fix/711-pin-for-everyone
+fix/713-link-long-press-ripple after fix/690-long-press-copy-link
+feat/680-message-translation
+fix/740-ios-theme-editor-watch
+fix/718-lazy-reaction-emoji after fix/call-leftovers-and-errors
+fix/743-thread-timeline-sync after fix/thread-media-stays-in-thread
+fix/743-timeline-view-resync after fix/481-timeline-keyboard-scroll
+fix/757-hide-select-files after feat/telegram-sticker-import
+fix/adaptive-sheet-scaled-insets
+fix/31-rejoin-left-space-room
+fix/509-unifiedpush-registration-logs after fix/508-android-read-elsewhere-push
+fix/317-encryption-unavailable-composer after feat/encryption-markers
+fix/350-typing-indicator-expiry
+fix/769-tooltip-detached-target
+feat/media-grid-actions after feat/member-panel-tabs
+feat/media-grid-gallery after feat/media-grid-actions
+fix/media-tab-no-load-behind-popup after feat/media-grid-gallery
+feat/l10n-vommet-strings overlay
+feat/telemetry-tag-prompt overlay
+test/unread-dot-wait-for-row overlay
+feat/clear-cache overlay
+fix/recovery-key-diagnostics overlay
+fix/shared-history-diagnostics overlay
+feat/media-spoilers overlay
+fix/theme-mode-search-reset overlay
+feat/crop-in-add-file overlay
+feat/reply-quote-style overlay
+fix/call-volume-apply overlay
+feat/telemetry-screenshare-audio overlay
+feat/spellcheck overlay
+fix/sender-name-wrap overlay
+feat/telemetry-voice-filter overlay
+fix/screenshare-audio-windows-stereo overlay
+fix/ios-layout-insets overlay
+feat/redacted-mode overlay
+feat/ios-fold-layout overlay
+fix/471-hover-time-overlay overlay
+feat/347-clock-format-r3 overlay
+fix/421-chat-bubbles overlay
+fix/478-space-icon-menu overlay
+fix/470-us-spelling overlay
+fix/456-responsive-desktop-layout overlay
+fix/495-header-topic-fit overlay
+fix/narrow-window-member-panel overlay
+fix/cross-signing-own-devices overlay
+fix/503-trusted-link-domains overlay
+fix/506-sidebar-icon-size overlay
+feat/web-build overlay
+perf/web-first-load overlay
+fix/499-room-switch-shortcuts overlay
+fix/web-reload-e2ee overlay
+fix/secure-setup-replace-key-and-confirm overlay
+fix/notify-after-fresh-sign-in overlay
+fix/334-share-keys-refresh overlay
+fix/436-keep-shared-history-flag overlay
+fix/296-primary-selection overlay
+feat/telemetry-all-experiments overlay
+feat/131-list-and-call-trust overlay
+fix/welcome-hide-join-if-member overlay
+feat/439-shared-history-setting overlay
+feat/telemetry-web-env overlay
+feat/telemetry-frames overlay
+fix/524-onboarding overlay
+feat/security-settings-refresh overlay
+fix/slow-device-approval overlay
+fix/unlock-background-import overlay
+feat/telemetry-secure-unlock overlay
+fix/space-avatar-late-state overlay
+fix/538-call-permission-wording overlay
+fix/539-resizable-chat-list overlay
+perf/roomlist-sync-work overlay
+feat/telemetry-ssss-repair overlay
+fix/ssss-repair-old-key-copies overlay
+fix/ssss-repair-checkin-early overlay
+fix/unlock-history-fast overlay
+perf/sdk-db-load overlay
+fix/532-bubble-colors overlay
+fix/media-grid-gallery-order overlay
+fix/sticker-import-usage overlay
+perf/sdk-startup-keys overlay
+perf/startup-main-thread overlay
+fix/sidebar-toggle-wording overlay
+feat/my-gifs overlay
+feat/guides overlay
+feat/layout-styles overlay
+feat/onboarding-rooms-button overlay
+feat/recovery-checkins-shared overlay
+feat/telemetry-first-sync-size overlay
+fix/rooms-button-guide-help overlay
+perf/sdk-batch-sync-store overlay
+feat/room-settings-general-advanced overlay
+perf/sdk-todevice-queue-bg overlay
+fix/sdk-unresolvable-user-lookups overlay
+fix/room-key-device-lists overlay
+feat/telemetry-room-key-share overlay
+fix/media-failure-cache overlay
+fix/svg-avatar-fallback overlay
+fix/member-list-fetch-once overlay
+feat/web-widgets overlay
+fix/web-startup-storage overlay
+fix/room-key-retries overlay
+fix/560-light-own-bubble overlay
+fix/573-selected-room-color overlay
+fix/574-new-messages-accent overlay
+fix/563-custom-stun-fallback overlay
+fix/579-hangup-button-hover overlay
+fix/565-prefixed-send-status overlay
+fix/564-dm-topic-line overlay
+fix/549-chat-list-room-switch-shortcuts overlay
+fix/554-reaction-notifications overlay
+fix/new-home-rooms-controls overlay
+feat/new-home-overview-customize overlay
+feat/profile-add-contact overlay
+fix/550-invite-alerts overlay
+feat/setup-home-shortcuts overlay
+fix/welcome-join-offer-flicker overlay
+fix/546-name-tooltip overlay
+fix/547-bubble-thread-side overlay
+perf/web-init-spans overlay
+feat/telemetry-verification overlay
+fix/590-android-in-app-banners-toggle overlay
+fix/592-phone-dm-call-button overlay
+fix/594-segmented-selection overlay
+fix/597-send-as-patterns overlay
+fix/599-circle-button-ripple overlay
+fix/605-web-theme-storage overlay
+fix/606-ctrl-pgup-room-switch overlay
+perf/history-import-slices overlay
+fix/591-icon-choice overlay
+feat/home-tabs-blocks overlay
+feat/home-tabs overlay
+feat/home-tabs-editor overlay
+feat/home-tabs-fallback overlay
+fix/610-rooms-button-all-chip overlay
+fix/609-home-button-overview overlay
+perf/web-device-keys-group overlay
+perf/get-users-room-prefix overlay
+fix/rejoin-timeline-crash overlay
+feat/home-tabs-tags overlay
+fix/american-spelling overlay
+fix/space-close-subscriptions overlay
+fix/589-selected-room-chat-list overlay
+feat/encrypted-search-index overlay
+feat/602-dm-shared-tabs overlay
+feat/611-in-chat-search overlay
+feat/593-in-app-update overlay
+fix/recovery-checkin-two-weeks overlay
+fix/602-dm-contact-button overlay
+fix/602-media-month-headers overlay
+fix/622-media-fullscreen-zoom overlay
+fix/614-narrow-settings-single-column overlay
+fix/625-call-room-list-order overlay
+fix/639-home-selected-room overlay
+feat/631-notification-levels overlay
+feat/632-windows-tray overlay
+fix/627-section-badges overlay
+fix/628-tab-pill-with-room overlay
+fix/630-compact-new-home overlay
+fix/629-gallery-thumbnail-strip overlay
+fix/635-folder-browse-rooms overlay
+perf/native-stall-spans overlay
+fix/620-sticker-size overlay
+feat/638-linked-contacts overlay
+fix/space-rail-avatar-sharp overlay
+perf/profile-card-instant overlay
+fix/new-home-defaults-customize overlay
+feat/new-home-customize-undo overlay
+perf/native-ffi-spans overlay
+fix/sliding-sync-gaps overlay
+ci/web-release-self-heal overlay
+fix/649-650-media-page-zoom overlay
+fix/653-657-pending-forward overlay
+fix/654-badge-counts overlay
+fix/656-bubble-dm-avatars overlay
+fix/652-select-text-mobile overlay
+fix/662-viewer-full-screen overlay
+fix/rail-room-avatar-sharp overlay
+fix/667-room-removed-banner overlay
+perf/startup-request-storm overlay
+feat/665-copy-message-link overlay
+fix/670-check-for-updates overlay
+fix/672-topic-before-join overlay
+fix/cancel-sent-invite overlay
+fix/677-narrow-settings overlay
+fix/home-tab-stays-on-side-list overlay
+feat/674-home-views overlay
+feat/674-home-views-editor overlay
+feat/home-tags-card overlay
+feat/home-live-calls-card overlay
+feat/home-text-card overlay
+fix/notification-settings-all-platforms overlay
+feat/676-bundled-receive overlay
+feat/676-bundled-send overlay
+perf/media-tab-thumbnails overlay
+feat/681-app-icon-everywhere overlay
+perf/backup-key-miss-cache overlay
+perf/new-home-lazy-overview overlay
+fix/452-pointer-cursor-pass2 overlay
+fix/695-pointer-cursor-pass3 overlay
+fix/693-android-placeholder-notifications overlay
+fix/696-macos-update-downloads overlay
+fix/697-app-icon-description-no-launcher overlay
+fix/699-mosaic-delete-all overlay
+fix/700-gallery-fill-zoom-swipe overlay
+fix/714-start-in-tray overlay
+fix/716-ios-theme-watch overlay
+fix/717-status-links overlay
+fix/722-unchanged-edit overlay
+fix/725-room-menu-tags overlay
+fix/732-not-in-space-filter overlay
+fix/736-add-contact-search overlay
+fix/737-dm-add-contact-menu overlay
+fix/703-705-picture-editor overlay
+feat/698-tab-icon-picker overlay
+feat/graduate-experiments overlay
+feat/telemetry-experiments-v36 overlay
+fix/707-reply-mosaic overlay
+feat/719-badges overlay
+feat/719-account-rules overlay
+feat/719-sound-by-rule overlay
+feat/719-mark-all-read overlay
+fix/721-large-timeline-images overlay
+feat/676-bundled-settings overlay
+fix/684-gallery-mini-grid overlay
+fix/742-strip-scroll-only overlay
+fix/app-icon-default-v overlay
+fix/getting-started-picture-size overlay
+fix/mosaic-member-markers overlay
+fix/onboarding-shortcuts-synced overlay
+feat/734-grouped-space-invites overlay
+feat/voice-transcript-language overlay
+feat/680-composer-translation overlay
+feat/windows-installer-update overlay
+fix/745-dm-badge-member-count overlay
+fix/747-media-pane-share overlay
+fix/741-mosaic-reactions-r2 overlay
+fix/mosaic-forward-save-all overlay
+feat/731-image-pack-standard overlay
+feat/744-history-grants overlay
+fix/749-dropped-call-ends overlay
+feat/experiments-default-on-2 overlay
+feat/727-alt-frontends-r2 overlay
+feat/175-invidious-playback-r2 overlay
+feat/layout-options overlay
+feat/telemetry-v37 overlay
+feat/746-chat-wallpaper overlay
+feat/name-mention-setting overlay
+fix/753-gallery-grid-follow-finger overlay
+fix/759-join-space-nav-bar overlay
+fix/push-rule-eval-sdk overlay
+feat/676-bundled-trust overlay
+feat/731-library overlay
+fix/755-756-media-viewer-immersive overlay
+fix/763-macos-pick-image overlay
+fix/764-profile-menu-change-picture overlay
+fix/762-hide-offline-members overlay
+fix/544-clear-own-call-membership overlay
+fix/541-unified-list-favorites overlay
+fix/542-unified-list-pin-to-top overlay
+fix/766-media-viewer-menu overlay
+feat/731-sharing overlay
+fix/72-last-device-sign-out overlay
+fix/24-html-newlines overlay
+fix/325-emote-formatting overlay
+fix/18-sticker-pack-links overlay
+fix/30-left-member-profile overlay
+fix/346-legacy-call-no-turn overlay
+feat/767-web-notifications overlay
+feat/758-getting-started-tour overlay
+fix/128-send-smaller-pictures overlay
+fix/phone-composer-buttons-wrap overlay
