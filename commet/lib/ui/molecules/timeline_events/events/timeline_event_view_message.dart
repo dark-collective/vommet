@@ -1,0 +1,789 @@
+import 'package:commet/client/attachment.dart';
+import 'package:commet/config/layout_style.dart';
+import 'package:commet/client/client.dart';
+import 'package:commet/client/components/gif/gif_component.dart';
+import 'package:commet/client/matrix/shared_history_info.dart';
+import 'package:commet/client/components/threads/thread_component.dart';
+import 'package:commet/client/components/url_preview/url_preview_component.dart';
+import 'package:commet/client/timeline_events/timeline_event.dart';
+import 'package:commet/client/timeline_events/timeline_event_encrypted.dart';
+import 'package:commet/client/timeline_events/timeline_event_feature_reactions.dart';
+import 'package:commet/client/timeline_events/timeline_event_feature_forwarded.dart';
+import 'package:commet/client/timeline_events/timeline_event_feature_per_message_profile.dart';
+import 'package:commet/client/timeline_events/timeline_event_message.dart';
+import 'package:commet/client/timeline_events/timeline_event_feature_related.dart';
+import 'package:commet/client/timeline_events/timeline_event_sticker.dart';
+import 'package:commet/client/timeline_events/timeline_event_unknown.dart';
+import 'package:commet/main.dart';
+import 'package:commet/ui/atoms/redaction_scope.dart';
+import 'package:commet/ui/molecules/read_indicator.dart';
+import 'package:commet/ui/molecules/timeline_events/personal_pin_mark.dart';
+import 'package:commet/ui/molecules/timeline_events/events/timeline_event_view_attachments.dart';
+import 'package:commet/ui/molecules/timeline_events/events/timeline_event_view_reactions.dart';
+import 'package:commet/ui/molecules/timeline_events/events/timeline_event_view_reply.dart';
+import 'package:commet/ui/molecules/timeline_events/events/timeline_event_view_sticker.dart';
+import 'package:commet/ui/molecules/timeline_events/events/timeline_event_view_thread.dart';
+import 'package:commet/ui/molecules/timeline_events/events/timeline_event_view_url_previews.dart';
+import 'package:commet/ui/molecules/timeline_events/layouts/timeline_event_layout_bubble.dart';
+import 'package:commet/ui/molecules/timeline_events/layouts/timeline_event_layout_message.dart';
+import 'package:commet/ui/molecules/timeline_events/message_text_selection.dart';
+import 'package:commet/ui/molecules/timeline_events/deleted_message_placeholder.dart';
+import 'package:commet/ui/molecules/timeline_events/media_group_member.dart';
+import 'package:commet/ui/molecules/timeline_events/timeline_event_layout.dart';
+import 'package:commet/ui/molecules/user_list.dart';
+import 'package:commet/ui/molecules/timeline_events/message_translation_fold.dart';
+import 'package:commet/ui/molecules/room_translation_views.dart';
+import 'package:commet/ui/organisms/user_profile/user_profile.dart';
+import 'package:commet/ui/molecules/sticker_pack_sheet.dart';
+import 'package:commet/utils/text_utils.dart';
+import 'package:commet/ui/atoms/reply_quote.dart';
+import 'package:flutter/material.dart';
+
+import 'package:intl/intl.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+import 'package:commet/utils/clock_format.dart';
+import 'package:commet/ui/molecules/edit_history_dialog.dart';
+
+/// Vommet: whether a message's body must be rebuilt. It must when its display
+/// id changed, and also when the body still shows the decryption error: an
+/// event decrypted in place keeps its display id (#16).
+bool rebuildContent(
+        {required bool displayIdChanged, required bool showingDecryptError}) =>
+    displayIdChanged || showingDecryptError;
+
+/// Vommet: whether to drop the decryption error from an event that decrypted
+/// in place into something without a text body (a sticker): the body is only
+/// rebuilt for messages, so "Failed to decrypt" stayed above the sticker
+/// until the room was reopened (#16).
+bool dropDecryptError(
+        {required bool showingDecryptError, required bool stillEncrypted}) =>
+    showingDecryptError && !stillEncrypted;
+
+class TimelineEventViewMessage extends StatefulWidget {
+  const TimelineEventViewMessage(
+      {super.key,
+      this.timeline,
+      this.room,
+      this.initialEvent,
+      this.isThreadTimeline = false,
+      this.overrideShowSender = false,
+      this.jumpToEvent,
+      this.readReceipts = const [],
+      this.onReadReceiptsTapped,
+      this.onDoubleTapMessage,
+      this.detailed = false,
+      this.previewMedia = false,
+      this.attachmentsOverride,
+      this.attachmentsOverrideEventIds,
+      this.reactionsInAttachments = false,
+      this.textSelectable = true,
+      required this.initialIndex});
+
+  /// Rendered instead of this event's own attachments (used by the media
+  /// mosaic root to show the whole group).
+  final Widget? attachmentsOverride;
+
+  /// The events [attachmentsOverride] draws, for their personal pin mark.
+  final List<String>? attachmentsOverrideEventIds;
+
+  /// Vommet issue 741: [attachmentsOverride] (a picture mosaic) shows the
+  /// reactions itself, on each picture, so there's no row under it.
+  final bool reactionsInAttachments;
+
+  /// Whether the menu's "Select text" can act on this view. False for
+  /// previews of a message shown elsewhere (the message menu's own preview),
+  /// which would otherwise grab and then end the real message's selection.
+  final bool textSelectable;
+
+  final Function(String eventId)? jumpToEvent;
+
+  final Timeline? timeline;
+  final TimelineEvent? initialEvent;
+  final Room? room;
+  final List<String> readReceipts;
+  final int initialIndex;
+  final bool overrideShowSender;
+  final bool detailed;
+  final bool isThreadTimeline;
+  final bool previewMedia;
+  final Function()? onReadReceiptsTapped;
+  final Function()? onDoubleTapMessage;
+
+  @override
+  State<TimelineEventViewMessage> createState() =>
+      _TimelineEventViewMessageState();
+}
+
+class _TimelineEventViewMessageState extends State<TimelineEventViewMessage>
+    implements TimelineEventViewWidget {
+  late String senderName;
+  late String senderId;
+  late Color senderColor;
+  String? viaSenderName;
+
+  late bool mentionsRoom;
+  late List<String> mentions;
+
+  String get messageFailedToDecrypt => Intl.message("Failed to decrypt event",
+      desc: "Placeholde text for when a message fails to decrypt",
+      name: "messageFailedToDecrypt");
+
+  String get messageHistoryNotShared => Intl.message(
+      "The sender didn't share this message with people who joined later",
+      desc:
+          "Shown instead of a message from before you joined an encrypted room, when the sender's app didn't allow sharing it with people who join later",
+      name: "messageHistoryNotShared");
+
+  GlobalKey reactionsKey = GlobalKey();
+  GlobalKey urlPreviewsKey = GlobalKey();
+  // Vommet: so new thread replies update the card.
+  GlobalKey threadKey = GlobalKey();
+
+  Widget? formattedContent;
+
+  /// The message's plain text, shown instead of [formattedContent] while
+  /// redacted mode hides or replaces text.
+  String? plainBody;
+  String? body;
+  String? displayId;
+
+  /// Vommet: [formattedContent] currently shows "Failed to decrypt".
+  bool showingDecryptError = false;
+  ImageProvider? senderAvatar;
+  List<Attachment>? attachments;
+  ImageProvider? sticker;
+  // Vommet issue 450: tapping the sticker opens its pack.
+  TimelineEventSticker? stickerEvent;
+  bool hasReactions = false;
+  bool isInResponse = false;
+  bool showSender = false;
+
+  /// Vommet: the newest message of its run (Layout › Avatar › Bottom).
+  bool lastOfRun = true;
+  late String eventId;
+  late String currentUserIdentifier;
+  late DateTime sentTime;
+
+  /// Vommet: who shared this message's key in a history bundle (MSC4268).
+  String? sharedBy;
+
+  UrlPreviewComponent? previewComponent;
+  bool doUrlPreview = false;
+
+  ThreadsComponent? threadComponent;
+  bool isHeadOfThread = false;
+
+  bool isGif = false;
+  bool isFavoriteGif = false;
+
+  int index = 0;
+
+  bool edited = false;
+
+  ForwardedFrom? forwardedFrom;
+
+  String get labelForwardedFrom => Intl.message("Forwarded from",
+      desc: "Header of a forwarded message, before the original sender",
+      name: "labelForwardedFrom");
+
+  String get labelForwardedMessage => Intl.message("Forwarded message",
+      desc: "Header of a forwarded message whose sender is not known",
+      name: "labelForwardedMessage");
+
+  @override
+  void initState() {
+    var room = widget.room ?? widget.timeline?.room;
+    var client = room!.client;
+    currentUserIdentifier = client.self!.identifier;
+    if (widget.previewMedia) {
+      previewComponent = client.getComponent<UrlPreviewComponent>();
+    }
+
+    if (!widget.isThreadTimeline) {
+      threadComponent = client.getComponent<ThreadsComponent>();
+    }
+
+    if (widget.timeline != null) {
+      loadEventState(widget.initialIndex);
+    }
+
+    if (widget.initialEvent != null) {
+      loadStateFromEvent(widget.initialEvent!);
+    }
+    super.initState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var room = widget.room ?? widget.timeline?.room;
+    final redactsText = RedactionScope.of(context).redactsText;
+    // Vommet: Settings › Appearance › Layout, in the timeline only.
+    final inTimeline = widget.timeline != null;
+    final avatarAtBottom = inTimeline && avatarAtBottomOfGroup.value;
+    final layout = TimelineEventLayoutMessage(
+      senderName: senderName,
+      senderColor: senderColor,
+      senderId: senderId,
+      viaSenderName: viaSenderName,
+      senderAvatar: senderAvatar,
+      showSender: showSender,
+      showAvatar: avatarAtBottom ? lastOfRun : showSender,
+      avatarAtBottom: avatarAtBottom,
+      captionBelow: inTimeline && captionBelowMedia.value,
+      maxContentWidth: inTimeline && limitMessageWidth.value
+          ? LayoutOptions.maxMessageWidth
+          : null,
+      formattedContent:
+          redactsText && formattedContent != null && plainBody != null
+              ? RedactedText(plainBody!)
+              : formattedContent,
+      forwardedFrom: forwardedHeader(context, room),
+      timestamp: timestampToString(sentTime),
+      layoutTimestamp:
+          widget.detailed ? timestampToString(sentTime, detailed: false) : null,
+      edited: edited,
+      // Vommet (chat navigation): the edit history.
+      onEditedTapped: edited ? openEditHistory : null,
+      sharedBy: sharedBy,
+      // Vommet: pinned for yourself.
+      timestampMark: room == null
+          ? null
+          : PersonalPinMark(
+              room: room,
+              eventId: eventId,
+              alsoFor: widget.attachmentsOverrideEventIds),
+      isMentioningSelf:
+          mentionsRoom || mentions.contains(room!.client.self!.identifier),
+      onDoubleTapMessage: widget.onDoubleTapMessage,
+      avatarBuilder: (child) {
+        var room = widget.room ?? widget.timeline?.room;
+
+        if (room != null) {
+          return RoomMemberList.userContextMenu(context,
+              userId: senderId,
+              userDisplayName: senderName,
+              room: room,
+              child: child,
+              isSelf: senderId == room.client.self!.identifier);
+        }
+
+        return child;
+      },
+      attachments: widget.attachmentsOverride ??
+          (attachments != null
+              ? TimelineEventViewAttachments(
+                  attachments: attachments!,
+                  previewMedia: widget.previewMedia,
+                )
+              : null),
+      readReceipts: room != null
+          ? ReadIndicator(
+              room: room,
+              users: widget.readReceipts,
+              onTap: widget.onReadReceiptsTapped,
+            )
+          : null,
+      sticker: sticker != null
+          ? TimelineEventViewSticker(
+              sticker!,
+              stickerName: body,
+              previewMedia: widget.previewMedia,
+              isFavoriteGif: isFavoriteGif,
+              markAsFavorite: markGifAsFavorite,
+              onTap: stickerEvent != null ? showStickerPack : null,
+            )
+          : null,
+      inlineReply: ReplyStyle.current.inline,
+      inResponseTo: isInResponse && widget.timeline != null
+          ? TimelineEventViewReply(
+              timeline: widget.timeline!,
+              index: index,
+              jumpToEvent: widget.jumpToEvent,
+            )
+          : null,
+      reactions: hasReactions &&
+              widget.timeline != null &&
+              !widget.reactionsInAttachments
+          ? TimelineEventViewReactions(
+              key: reactionsKey,
+              timeline: widget.timeline!,
+              initialIndex: index)
+          : null,
+      urlPreviews:
+          previewComponent != null && doUrlPreview && widget.timeline != null
+              ? TimelineEventViewUrlPreviews(
+                  initialIndex: index,
+                  timeline: widget.timeline!,
+                  component: previewComponent!,
+                  key: urlPreviewsKey,
+                )
+              : null,
+      thread: isHeadOfThread && widget.timeline != null
+          ? TimelineEventViewThread(
+              key: threadKey,
+              initialIndex: index,
+              timeline: widget.timeline!,
+              component: threadComponent!,
+              inThread: widget.isThreadTimeline)
+          : null,
+      onAvatarTapped: () => UserProfile.show(context,
+          client: widget.timeline!.client,
+          userId: senderId,
+          room: widget.timeline!.room),
+    );
+
+    // Vommet: the opt-in chat-bubble layout (Vommet issue 421), in the
+    // timeline only.
+    final timeline = widget.timeline;
+    if (preferences.chatBubbleLayout.value && timeline != null) {
+      return TimelineEventLayoutBubble(
+        message: layout,
+        isOwnMessage: senderId == currentUserIdentifier,
+        ownSide: OwnBubbleSide.current,
+      );
+    }
+
+    return layout;
+  }
+
+  Widget? forwardedHeader(BuildContext context, Room? room) {
+    var from = forwardedFrom;
+    if (from == null || room == null) return null;
+
+    var colors = Theme.of(context).colorScheme;
+    var senderId = from.senderId;
+    var member = senderId != null ? room.getMemberOrFallback(senderId) : null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: SelectionContainer.disabled(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shortcut, size: 14, color: colors.secondary),
+            const SizedBox(width: 4),
+            tiamat.Text.labelLow(
+                member != null ? labelForwardedFrom : labelForwardedMessage),
+            if (member != null) ...[
+              const SizedBox(width: 4),
+              Flexible(
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => UserProfile.show(context,
+                        client: room.client, userId: senderId!, room: room),
+                    child: tiamat.Text.labelEmphasised(member.displayName,
+                        color: member.defaultColor,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  void update(int newIndex) {
+    setState(() {
+      loadEventState(newIndex);
+    });
+
+    for (var key in [reactionsKey, urlPreviewsKey, threadKey]) {
+      if (key.currentState is TimelineEventViewWidget) {
+        (key.currentState as TimelineEventViewWidget).update(newIndex);
+      }
+    }
+  }
+
+  void loadEventState(var eventIndex) {
+    index = eventIndex;
+    if (widget.timeline != null) {
+      var event = widget.timeline!.events[eventIndex];
+      loadStateFromEvent(event);
+    }
+  }
+
+  void loadStateFromEvent(TimelineEvent event) {
+    sharedBy = SharedHistoryInfo.sharedBy(event);
+    mentionsRoom = event.mentionsRoom;
+    mentions = event.mentions;
+    showSender = shouldShowSender(index);
+    lastOfRun = isLastOfRun(index);
+    var room = widget.room ?? widget.timeline?.room;
+
+    bool didContentChange = true;
+
+    if (widget.timeline != null) {
+      var did = widget.timeline!.getDisplayId(event);
+      if (did == displayId) {
+        didContentChange = false;
+      }
+      displayId = did;
+    }
+
+    var sender = room!.getMemberOrFallback(event.senderId);
+    eventId = event.eventId;
+
+    senderId = sender.identifier;
+    senderName = sender.displayName;
+    senderAvatar = sender.avatar;
+    senderColor = sender.defaultColor;
+
+    applyPerMessageProfile(event);
+
+    sentTime = event.originServerTs;
+
+    forwardedFrom = event is TimelineEventFeatureForwarded
+        ? (event as TimelineEventFeatureForwarded).forwardedFrom
+        : null;
+
+    var gifs = (widget.room ?? widget.timeline?.room)
+        ?.client
+        .getComponent<GifComponent>();
+
+    isGif = gifs?.isGif(event) == true;
+
+    isFavoriteGif = gifs?.isFavoriteGif(event) == true;
+
+    if (widget.timeline != null) {
+      if (event is TimelineEventFeatureReactions) {
+        hasReactions = (event as TimelineEventFeatureReactions)
+            .hasReactions(widget.timeline!);
+      }
+
+      isHeadOfThread =
+          threadComponent?.isHeadOfThread(event, widget.timeline!) ?? false;
+
+      if (event is TimelineEventMessage) {
+        edited = event.isEdited(widget.timeline!);
+      }
+    } else {
+      edited = false;
+      isHeadOfThread = false;
+      hasReactions = false;
+    }
+
+    if (event is TimelineEventSticker) {
+      stickerEvent = event;
+      sticker = event.stickerImage;
+      body = event.plainTextBody;
+    }
+
+    // Vommet issue 306: a deleted message keeps its row (sender, time, a
+    // thread under it) with a placeholder for everything it said.
+    if (widget.timeline != null &&
+        showsDeletedPlaceholder(widget.timeline!, event)) {
+      formattedContent =
+          DeletedMessagePlaceholder.forEvent(widget.timeline!, event);
+      attachments = null;
+      sticker = null;
+      body = null;
+      isGif = false;
+      isFavoriteGif = false;
+      hasReactions = false;
+      edited = false;
+      isInResponse = false;
+      doUrlPreview = false;
+      return;
+    }
+
+    // Vommet issue 707: a later part of one reply (its text after the
+    // pictures) doesn't repeat the quote, unless it's shown on its own.
+    isInResponse = event is TimelineEventFeatureRelated &&
+        (event as TimelineEventFeatureRelated).relationshipType ==
+            EventRelationshipType.reply &&
+        !(widget.overrideShowSender == false &&
+            widget.timeline != null &&
+            continuesReplyAt(index, widget.timeline!));
+
+    if (event is TimelineEventEncrypted) {
+      // Vommet: say why when the room's shared history left this one out.
+      formattedContent = SharedHistoryInfo.notShared(event)
+          ? tiamat.Text.labelLow(messageHistoryNotShared)
+          : tiamat.Text.error(messageFailedToDecrypt);
+      showingDecryptError = true;
+    }
+
+    plainBody = null;
+    if (event is! TimelineEventMessage) {
+      if (dropDecryptError(
+          showingDecryptError: showingDecryptError,
+          stillEncrypted: event is TimelineEventEncrypted)) {
+        formattedContent = null;
+        showingDecryptError = false;
+      }
+      return;
+    }
+
+    plainBody = event.plainTextBody;
+
+    // Vommet: an event decrypted in place keeps its display id, so the
+    // "Failed to decrypt" text stayed until the room was reopened (#16).
+    if (rebuildContent(
+        displayIdChanged: didContentChange,
+        showingDecryptError: showingDecryptError)) {
+      showingDecryptError = false;
+      var content = event.buildFormattedContent(timeline: widget.timeline);
+
+      if (content == null) {
+        formattedContent = null;
+      } else if (widget.textSelectable) {
+        // Vommet: phones select part of the text via the menu's "Select text".
+        formattedContent = MessageTextSelectionScope(
+            eventId: event.eventId,
+            child: Container(key: GlobalKey(), child: content));
+      } else {
+        formattedContent = Container(key: GlobalKey(), child: content);
+      }
+    }
+
+    attachments = event.attachments;
+
+    // Vommet issue 680: a Translate pill on other people's messages in
+    // another language (left alone where translation can't run); phase 2:
+    // "Translate this room" translates them as they're built, and your own
+    // messages sent translated show what you wrote.
+    final roomId = (widget.room ?? widget.timeline?.room)?.identifier;
+    final plainText = widget.timeline != null
+        ? event.getPlaintextBody(widget.timeline!)
+        : event.plainTextBody;
+    if (formattedContent != null &&
+        formattedContent is! MessageTranslationFold &&
+        senderId != currentUserIdentifier &&
+        (attachments?.isEmpty ?? true)) {
+      formattedContent = MessageTranslationFold.wrap(
+          eventId: event.eventId,
+          text: plainText,
+          roomId: roomId,
+          autoTranslatable: !hasCode(event, plainText),
+          child: formattedContent!);
+    }
+    if (formattedContent != null &&
+        formattedContent is! SentTranslationNote &&
+        roomId != null &&
+        senderId == currentUserIdentifier &&
+        (attachments?.isEmpty ?? true)) {
+      formattedContent = SentTranslationNote.wrap(
+          roomId: roomId, text: plainText, child: formattedContent!);
+    }
+
+    doUrlPreview = widget.timeline != null &&
+        previewComponent?.shouldGetPreviewDataForTimelineEvent(
+                widget.timeline!, event) ==
+            true &&
+        event.getLinks(timeline: widget.timeline!)?.isEmpty == false;
+  }
+
+  /// Code doesn't go through the room translation (Vommet issue 680).
+  static bool hasCode(TimelineEventMessage event, String text) {
+    final html = event.formattedBody;
+    return text.contains("```") ||
+        (html != null && (html.contains("<pre") || html.contains("<code")));
+  }
+
+  void applyPerMessageProfile(TimelineEvent event) {
+    viaSenderName = null;
+
+    if (event is! TimelineEventFeaturePerMessageProfile) {
+      return;
+    }
+
+    var profile = (event as TimelineEventFeaturePerMessageProfile)
+        .getPerMessageProfile(timeline: widget.timeline);
+
+    if (profile == null) {
+      return;
+    }
+
+    if (profile.avatar != null || profile.clearAvatar) {
+      senderAvatar = profile.avatar;
+    }
+
+    if (profile.hasDisplayName) {
+      viaSenderName = senderName;
+      senderName = profile.displayName!;
+      senderColor = profile.color;
+    }
+  }
+
+  String? perMessageProfileGroupingKey(TimelineEvent event) {
+    if (event is! TimelineEventFeaturePerMessageProfile) {
+      return null;
+    }
+
+    var profile = (event as TimelineEventFeaturePerMessageProfile)
+        .getPerMessageProfile(timeline: widget.timeline);
+
+    if (profile == null) {
+      return null;
+    }
+
+    return "${profile.id} ${profile.displayName ?? ""}";
+  }
+
+  void openEditHistory() {
+    final timeline = widget.timeline;
+    final event = timeline?.tryGetEvent(eventId);
+    if (timeline == null || event is! TimelineEventMessage) return;
+    EditHistoryDialog.show(context, event: event, timeline: timeline);
+  }
+
+  // Vommet: the clock setting on every platform (Vommet issue 347); only
+  // Android used to follow the system's 24-hour clock.
+  String timestampToString(DateTime time, {bool? detailed}) {
+    detailed ??= widget.detailed;
+    if (detailed) {
+      return TextUtils.timestampToLocalizedTimeSpecific(time, context);
+    }
+    return ClockFormat.timeOf(context, time,
+        seconds: preferences.messageTimeSeconds.value);
+  }
+
+  bool shouldShowSender(int index) {
+    if (widget.overrideShowSender) return true;
+    if (widget.timeline == null) return true;
+
+    TimelineEvent? prevEvent;
+    for (int i = 1; i < 5; i++) {
+      int testIndex = index + i;
+      if (widget.timeline!.events.length <= testIndex) {
+        return true;
+      }
+      var event = widget.timeline!.events[testIndex];
+
+      if (preferences.developerMode.value) {
+        prevEvent = event;
+        break;
+      }
+
+      if (event is! TimelineEventUnknown ||
+          showsDeletedPlaceholder(widget.timeline!, event)) {
+        prevEvent = event;
+        break;
+      }
+    }
+
+    if (prevEvent == null) {
+      return true;
+    }
+
+    final thisEvent = widget.timeline!.events[index];
+    final prevIsPlaceholder =
+        showsDeletedPlaceholder(widget.timeline!, prevEvent);
+
+    if (thisEvent is! TimelineEventMessage &&
+        thisEvent is! TimelineEventSticker &&
+        thisEvent is! TimelineEventEncrypted &&
+        !showsDeletedPlaceholder(widget.timeline!, thisEvent)) {
+      return false;
+    }
+
+    if (thisEvent is TimelineEventFeatureRelated) {
+      if ((thisEvent as TimelineEventFeatureRelated).relationshipType ==
+              EventRelationshipType.reply &&
+          !continuesReplyAt(index, widget.timeline!)) {
+        return true;
+      }
+    }
+
+    if (prevEvent is! TimelineEventMessage &&
+        prevEvent is! TimelineEventEncrypted &&
+        prevEvent is! TimelineEventSticker &&
+        !prevIsPlaceholder) {
+      return true;
+    }
+
+    if (widget.timeline!.isEventRedacted(prevEvent) && !prevIsPlaceholder) {
+      return true;
+    }
+
+    if (widget.isThreadTimeline == false &&
+        threadComponent?.isEventInResponseToThread(
+                prevEvent, widget.timeline!) ==
+            true) {
+      return true;
+    }
+
+    if (thisEvent.originServerTs
+            .difference(prevEvent.originServerTs)
+            .inMinutes >
+        1) return true;
+
+    if (thisEvent.senderId != prevEvent.senderId) {
+      return true;
+    }
+
+    return perMessageProfileGroupingKey(thisEvent) !=
+        perMessageProfileGroupingKey(prevEvent);
+  }
+
+  /// Vommet: whether the event at [index] is the newest of its run of
+  /// messages: the next shown event is something else, or starts a new run.
+  bool isLastOfRun(int index) {
+    final timeline = widget.timeline;
+    if (widget.overrideShowSender || timeline == null) return true;
+    for (int i = 1; i < 5; i++) {
+      final testIndex = index - i;
+      if (testIndex < 0) return true;
+      final event = timeline.events[testIndex];
+      final placeholder = showsDeletedPlaceholder(timeline, event);
+      if (!preferences.developerMode.value &&
+          event is TimelineEventUnknown &&
+          !placeholder) {
+        continue;
+      }
+      // Thread replies aren't shown in the room's timeline.
+      if (!widget.isThreadTimeline &&
+          threadComponent?.isEventInResponseToThread(event, timeline) == true) {
+        continue;
+      }
+      if (event is! TimelineEventMessage &&
+          event is! TimelineEventSticker &&
+          event is! TimelineEventEncrypted &&
+          !placeholder) {
+        return true;
+      }
+      return shouldShowSender(testIndex);
+    }
+    return true;
+  }
+
+  void showStickerPack() {
+    final room = widget.room ?? widget.timeline?.room;
+    if (room == null || stickerEvent == null) return;
+    StickerPackSheet.show(context,
+        room: room,
+        event: stickerEvent!,
+        isFavorite: isFavoriteGif,
+        markAsFavorite: isGif ? markGifAsFavorite : null);
+  }
+
+  markGifAsFavorite(bool favorite) async {
+    print(
+      "Marking gif as favorite: $favorite",
+    );
+
+    var gif = (widget.room ?? widget.timeline?.room)
+        ?.client
+        .getComponent<GifComponent>();
+
+    var event = widget.timeline!.events[index];
+    var isGif = gif?.isGif(event) == true;
+    if (!isGif) {
+      return;
+    }
+
+    setState(() {
+      isFavoriteGif = favorite;
+    });
+
+    if (favorite) {
+      await gif!.setFavoriteFromEvent(event);
+    } else {
+      await gif!.removeFavoriteFromEvent(event);
+    }
+  }
+}
