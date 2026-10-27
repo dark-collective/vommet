@@ -1,0 +1,1019 @@
+# Vommet: native desktop builds for the tester releases, next to the Flatpak,
+# APK and Windows zip. Runs only on the GitHub copy
+# (github.com/dark-collective/vommet); Forgejo never sees this file.
+#
+#   vommet-linux-x64-<tag>.tar.gz    (+ .sha256)   ubuntu-24.04
+#   vommet-linux-arm64-<tag>.tar.gz  (+ .sha256)   ubuntu-24.04-arm (native; Flutter
+#                                                  can't cross-build Linux desktop)
+#   vommet-macos-universal-<tag>.zip (+ .sha256)   macOS, UNSIGNED (no Apple
+#                                                  Developer account yet)
+#   vommet-ios-arm64-<tag>.ipa       (+ .sha256)   iOS, UNSIGNED, for sideloading
+#                                                  (AltStore/SideStore re-sign it)
+#   vommet-linux-{x64,arm64}-<tag>.{deb,rpm,AppImage} (+ .sha256)  from those tarballs,
+#                                                  install-tested (nether/vommet-packaging)
+#   vommet-nix-<tag>.tar.gz, vommet-guix-<tag>.scm (+ .sha256)  Nix flake / Guix package
+#                                                  for the tarballs, built on both arches
+#   vommet-flatpak-aarch64-<tag>.flatpak (+ .sha256)  ubuntu-24.04-arm, from its own
+#                                                  BUILD_DETAIL=flatpak bundle (publish.sh
+#                                                  renames it vommet-testing-aarch64.flatpak)
+#
+# The Linux tarballs are what the Guix package repacks (it rewrites the ELF
+# interpreter and RUNPATH and runs the bundle against Guix's libraries), so:
+#   - BUILD_DETAIL=guix, never flatpak (the Flatpak flavour calls flatpak-spawn);
+#   - COMMET_PROD=1 in flutter build's environment, from a clean tree (CMake
+#     caches the app id; without it the id is im.nether.chat.develop). Checked;
+#   - glibc symbols no newer than 2.41 (Ubuntu 24.04 has 2.39). Checked;
+#   - archive = the unmodified build/linux/<arch>/release/bundle as the single
+#     top-level directory bundle/, tarred reproducibly; lib/libdartjni.so stays;
+#   - the sorted DT_NEEDED list is printed: a new soname means a new Guix input.
+# The file names, and the URLs publish.sh attaches them under
+# (https://nether.codes/nether/vommet/releases/download/<tag>/<name>), are
+# consumed by Guix-side tooling: keep them stable.
+#
+# The .ipa is for developer testers who sideload it with AltStore or SideStore,
+# which re-sign it with the tester's own Apple ID (re-signed every 7 days, push
+# notifications likely missing). TestFlight would need an Apple Developer
+# account (Vommet issue 43).
+#
+# winbranch.sh adds this file to ci/windows-testing with .vommet/ci/source-sha
+# (the candidate commit: GIT_HASH) and .vommet/ci/source-time (its commit time:
+# BUILD_DATE). The release job attaches whatever built to a native-ci-*
+# pre-release; publish.sh copies the files whose <tag> matches the release it
+# publishes and skips the rest. None of these jobs gates a cut or a release.
+name: vommet-native
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/windows-native*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # = .github/workflows/release.yml
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+
+jobs:
+  # The release name and build inputs, computed once so every platform agrees.
+  meta:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+      sha: ${{ steps.m.outputs.sha }}
+      date: ${{ steps.m.outputs.date }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: m
+        name: Release tag, source commit, build date
+        run: |
+          set -euo pipefail
+          vt=$(bash .vommet/ci/version-tag.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" 2>/dev/null || true)
+          vt=${vt:-$GITHUB_REF_NAME.$GITHUB_RUN_NUMBER}
+          tag=${vt%% (*}; tag=${tag//\//-}
+          sha=$(cat .vommet/ci/source-sha 2>/dev/null || true); sha=${sha:-$GITHUB_SHA}
+          # Commit time of the source commit; the snapshot's own date is the
+          # temporary ci/windows-testing commit's, not the candidate's.
+          ct=$(cat .vommet/ci/source-time 2>/dev/null || true); ct=${ct:-$(git log -1 --format=%ct)}
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "date=${ct}000" >> "$GITHUB_OUTPUT"
+          echo "tag '$tag' (label '$vt'), source $sha, BUILD_DATE ${ct}000"
+
+  linux:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    env:
+      NAME: vommet-linux-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # clang/lld 18: third-party plugins build with -Werror, newer clang trips warnings.
+      - &native-toolchain
+        name: Install toolchain and native dependencies
+        run: |
+          set -euo pipefail
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Each try fetches the lists and the packages under a watchdog, and a retry on x64
+          # moves to another Ubuntu mirror first: the runner's default one stalled all 3
+          # tries twice on 10-22/23. The install itself then runs from the local cache.
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="\
+            clang-18 lld-18 llvm-18 g++ cmake ninja-build pkg-config binutils curl git unzip xz-utils zip \
+            libgtk-3-dev libmpv-dev libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libkeybinder-3.0-dev libasound2-dev libsecret-1-dev libjsoncpp-dev \
+            libpulse-dev libpipewire-0.3-dev"
+          mirror() {
+            [ ${{ matrix.arch }} = x64 ] || return 0
+            echo "apt: switching to $1"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              { printf '%s\tpriority:1\n' "$1"; awk -F'priority:' 'NF==2{print $1 "priority:" $2+1; next} {print}' /etc/apt/apt-mirrors.txt; } > mirrors.new
+              sudo cp mirrors.new /etc/apt/apt-mirrors.txt; rm mirrors.new
+            fi
+            sudo sed -i -E "s#https?://(azure\.)?archive\.ubuntu\.com/ubuntu/?#$1#g; s#https?://mirrors\.edge\.kernel\.org/ubuntu/?#$1#g" \
+              /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+          }
+          for i in 1 2 3; do
+            case $i in 2) mirror http://archive.ubuntu.com/ubuntu/;; 3) mirror http://mirrors.edge.kernel.org/ubuntu/;; esac
+            timeout 150 sudo apt-get $o update -qq &&
+              timeout 360 sudo apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null && break
+            [ $i = 3 ] && { echo "::error title=apt::package download failed or stalled 3 times"; exit 1; }
+            echo "::warning title=apt::try $i failed or stalled"; sleep 10
+          done
+          sudo apt-get install -y -qq --no-install-recommends $p >/dev/null
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+          . /etc/os-release; echo "$PRETTY_NAME, $(ldd --version | head -1)"
+
+      - &native-rust
+        name: Install Rust (stable, rustup)
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null; then
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      # A git checkout of the pinned tag works on both arches (the release
+      # archives that flutter-action downloads are x64-only).
+      - &native-flutter
+        name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none --no-checkout https://github.com/flutter/flutter.git "$RUNNER_TOOL_CACHE/flutter"
+          git -C "$RUNNER_TOOL_CACHE/flutter" -c advice.detachedHead=false checkout -q "$FLUTTER_VERSION"
+          echo "$RUNNER_TOOL_CACHE/flutter/bin" >> "$GITHUB_PATH"
+
+      - &native-versions
+        name: Versions
+        run: |
+          flutter config --no-analytics --enable-linux-desktop >/dev/null
+          flutter --version
+          clang --version | head -1; ld.lld --version; cmake --version | head -1; cargo --version
+
+      - &native-pubget
+        name: Pub get + codegen
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          rm -rf build
+          # git deps come from nether.codes; retry a dropped connection
+          for i in 1 2 3; do flutter pub get && break; [ $i = 3 ] && exit 1; sleep 30; done
+          dart run scripts/codegen.dart
+
+      - name: Build Linux (release, BUILD_DETAIL=guix)
+        env:
+          COMMET_PROD: 1
+          CC: clang
+          CXX: clang++
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          flutter build linux --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=guix \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - &native-appid
+        name: Check app id (no .develop)
+        run: |
+          set -euo pipefail
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/release/bundle
+          ids=$(strings -a $B/vommet | grep im.nether.chat | sort -u)
+          echo "$ids"
+          [ -n "$ids" ] || { echo "::error title=app id::im.nether.chat not found in bundle/vommet"; exit 1; }
+          if grep -q '\.develop' <<<"$ids"; then echo "::error title=app id::develop app id in bundle/vommet (COMMET_PROD not set?)"; exit 1; fi
+          echo "app id check OK"
+
+      - name: Check glibc (<= 2.41)
+        run: |
+          set -euo pipefail
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/release/bundle
+          vers=$(objdump -T $B/vommet $B/lib/*.so | grep -o 'GLIBC_2\.[0-9]*' | sort -t. -k2 -n -u)
+          echo "glibc symbol versions: $(echo $vers)"
+          bad=$(awk -F. '$2 > 41' <<<"$vers")
+          [ -z "$bad" ] || { echo "::error title=glibc::symbols newer than GLIBC_2.41: $(echo $bad)"; exit 1; }
+          echo "glibc check OK (max $(tail -1 <<<"$vers"))"
+          echo "GLIBCXX max (info): $(objdump -T $B/vommet $B/lib/*.so | grep -o 'GLIBCXX_3\.4\.[0-9]*' | sort -t. -k3 -n -u | tail -1)"
+
+      - name: DT_NEEDED sonames
+        run: |
+          B=$PROJECT_PATH/build/linux/${{ matrix.arch }}/release/bundle
+          echo "DT_NEEDED across bundle/vommet and bundle/lib/*.so (${{ matrix.arch }}):"
+          objdump -p $B/vommet $B/lib/*.so | awk '$1 == "NEEDED" {print $2}' | sort -u
+
+      - name: Package (reproducible tar)
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH/build/linux/${{ matrix.arch }}/release
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' -czf "$GITHUB_WORKSPACE/$NAME" bundle
+          cd "$GITHUB_WORKSPACE"
+          sha256sum "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+          tar -tzf "$NAME" | awk -F/ '{print $1}' | sort -u
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-linux-${{ matrix.arch }}
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # .deb, .rpm and AppImage from the Linux bundle, built and install-tested on
+  # the same arch. The recipes live in nether/vommet-packaging (deb-rpm/,
+  # appimage/), with the Nix flake and Guix channel below; dependencies are
+  # computed from the bundle's ELFs. Not a gate: a failure leaves these out.
+  linux-packages:
+    needs: [meta, linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      NAME: vommet-linux-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}
+    # Shared with linux-packages-retry (YAML anchor): every step after the first
+    # is skipped there for an arch whose packages the first attempt already built.
+    steps: &linux-packages-steps
+      - name: Built by the first attempt?
+        id: prior
+        if: github.job == 'linux-packages-retry'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=native-pkg-${{ matrix.arch }}" --jq .total_count)
+          echo "first attempt artifacts for ${{ matrix.arch }}: $n"
+          if [ "$n" = 0 ]; then echo skip=false; else echo skip=true; fi >> "$GITHUB_OUTPUT"
+
+      - name: Download the bundle
+        if: steps.prior.outputs.skip != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-linux-${{ matrix.arch }}
+
+      - name: Packaging recipes (nether/vommet-packaging)
+        if: steps.prior.outputs.skip != 'true'
+        run: |
+          for i in 1 2 3; do git clone -q --depth 1 https://nether.codes/nether/vommet-packaging.git pkg && break; [ $i = 3 ] && exit 1; sleep 20; done
+          git -C pkg log -1 --format='vommet-packaging %h %s'
+
+      - name: Runtime libraries + nfpm
+        if: steps.prior.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Each try fetches the lists and the packages under a watchdog, and a retry on x64
+          # moves to another Ubuntu mirror first: 22g's x64 leg stalled 3 times on the
+          # runner's default one (10-22). The install itself then runs from the local cache.
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="dpkg-dev xvfb xauth dbus-x11 libegl-mesa0 file \
+            libglib2.0-bin dconf-gsettings-backend librsvg2-common \
+            libgtk-3-0t64 libmpv2 libwebkit2gtk-4.1-0 libkeybinder-3.0-0 libpulse0 libgbm1 libepoxy0 \
+            libxkbcommon0 libegl1 libgl1"
+          mirror() {
+            [ ${{ matrix.arch }} = x64 ] || return 0
+            echo "apt: switching to $1"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              { printf '%s\tpriority:1\n' "$1"; awk -F'priority:' 'NF==2{print $1 "priority:" $2+1; next} {print}' /etc/apt/apt-mirrors.txt; } > mirrors.new
+              sudo cp mirrors.new /etc/apt/apt-mirrors.txt; rm mirrors.new
+            fi
+            sudo sed -i -E "s#https?://(azure\.)?archive\.ubuntu\.com/ubuntu/?#$1#g; s#https?://mirrors\.edge\.kernel\.org/ubuntu/?#$1#g" \
+              /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+          }
+          for i in 1 2 3; do
+            case $i in 2) mirror http://archive.ubuntu.com/ubuntu/;; 3) mirror http://mirrors.edge.kernel.org/ubuntu/;; esac
+            timeout 150 sudo apt-get $o update -qq &&
+              timeout 360 sudo apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null && break
+            [ $i = 3 ] && { echo "::error title=apt::package download failed or stalled 3 times"; exit 1; }
+            echo "::warning title=apt::try $i failed or stalled"; sleep 10
+          done
+          sudo apt-get install -y -qq --no-install-recommends $p >/dev/null
+          case ${{ matrix.arch }} in x64) a=x86_64 s=6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750;;
+                                     arm64) a=arm64 s=a9a75213763783b7669719e505474c748c5ad7dc66591a195619deb50f85c2f4;; esac
+          curl -sSfL -o nfpm.tgz "https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_Linux_$a.tar.gz"
+          echo "$s  nfpm.tgz" | sha256sum -c --quiet
+          mkdir -p "$HOME/.local/bin"; tar -xzf nfpm.tgz -C "$HOME/.local/bin" nfpm; rm nfpm.tgz
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build .deb and .rpm
+        if: steps.prior.outputs.skip != 'true'
+        run: |
+          sha256sum -c "$NAME.tar.gz.sha256"
+          bash pkg/deb-rpm/build.sh ${{ matrix.arch }} "$TAG" "$NAME.tar.gz" out
+
+      - name: Build AppImage
+        if: steps.prior.outputs.skip != 'true'
+        run: bash pkg/appimage/build.sh ${{ matrix.arch }} "$TAG" "$NAME.tar.gz" out
+
+      # Every ELF must resolve with only the package's dependencies installed.
+      - name: Install test (Ubuntu 24.04, Debian 13, Fedora 43, openSUSE Tumbleweed)
+        if: steps.prior.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          cat > out/check.sh <<'SH'
+          set -e
+          [ -x /usr/bin/vommet ] && [ -f /usr/share/applications/im.nether.chat.desktop ]
+          # The plugins find each other through the runner's RUNPATH ($ORIGIN/lib), as at runtime.
+          missing=$(LD_LIBRARY_PATH=/opt/vommet/lib ldd /opt/vommet/vommet /opt/vommet/lib/*.so | grep 'not found' | sort -u || true)
+          [ -z "$missing" ] || { echo "unresolved libraries:"; echo "$missing"; exit 1; }
+          echo "all libraries resolve"
+          SH
+          sudo apt-get install -y -qq "./out/$NAME.deb" >/dev/null
+          echo "== Ubuntu 24.04"; bash out/check.sh
+          echo "== Debian 13"
+          docker run --rm -v "$PWD/out:/out" debian:13 bash -c \
+            "apt-get update -qq && apt-get install -y -qq /out/$NAME.deb >/dev/null && bash /out/check.sh"
+          echo "== Fedora 43"
+          docker run --rm -v "$PWD/out:/out" fedora:43 bash -c \
+            "dnf install -y -q /out/$NAME.rpm >/dev/null && bash /out/check.sh"
+          echo "== openSUSE Tumbleweed"
+          docker run --rm -v "$PWD/out:/out" opensuse/tumbleweed bash -c \
+            "for i in 1 2 3; do zypper -q -n --gpg-auto-import-keys install --allow-unsigned-rpm /out/$NAME.rpm >/dev/null && break; [ \$i = 3 ] && exit 3; echo zypper retry; sleep 20; done; bash /out/check.sh" ||
+            { rc=$?; [ $rc = 3 ] || exit $rc; echo "::warning title=openSUSE install test::zypper failed 3 times (mirror trouble?), skipped"; }
+          rm out/check.sh
+
+      # On hosts that only have what the AppImage excludelist leaves to them.
+      - name: AppImage test (Debian 13, Fedora 43)
+        if: steps.prior.outputs.skip != 'true'
+        id: aitest
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cat > out/aicheck.sh <<'SH'
+          set -e
+          cd /tmp && /out/$1 --appimage-extract >/dev/null && cd squashfs-root
+          missing=$(LD_LIBRARY_PATH=usr/lib/deps:usr/lib/vommet/lib ldd usr/lib/vommet/vommet usr/lib/vommet/lib/*.so usr/lib/deps/*.so | grep 'not found' | sort -u || true)
+          [ -z "$missing" ] || { echo "unresolved libraries:"; echo "$missing"; exit 1; }
+          echo "all libraries resolve"
+          if command -v xvfb-run >/dev/null; then
+            set +e; dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' timeout 20 ./AppRun > /tmp/start.log 2>&1; rc=$?; set -e
+            tail -n 15 /tmp/start.log
+            [ $rc = 124 ] && echo "START OK (still running after 20 s)" || echo "START FAILED: exited with $rc within 20 s"
+          fi
+          SH
+          echo "== Debian 13"
+          docker run --rm -v "$PWD/out:/out" debian:13 bash -c \
+            "apt-get update -qq && apt-get install -y -qq --no-install-recommends libgl1 libegl1 libgles2 shared-mime-info libegl-mesa0 libgbm1 libdrm2 libx11-6 libx11-xcb1 libxcb1 libwayland-client0 libfontconfig1 fonts-dejavu-core libharfbuzz0b libasound2t64 libpipewire-0.3-0t64 libcom-err2 libfribidi0 libgpg-error0 xvfb xauth dbus-daemon >/dev/null && bash /out/aicheck.sh $NAME.AppImage" | tee ai-debian.log
+          echo "== Fedora 43"
+          docker run --rm -v "$PWD/out:/out" fedora:43 bash -c \
+            "dnf install -y -q mesa-libGL libglvnd-gles shared-mime-info mesa-libEGL mesa-libgbm mesa-dri-drivers libX11 libX11-xcb libxcb libwayland-client fontconfig dejavu-sans-fonts harfbuzz alsa-lib pipewire-libs libcom_err fribidi libgpg-error xorg-x11-server-Xvfb xauth dbus-daemon >/dev/null && bash /out/aicheck.sh $NAME.AppImage" | tee ai-fedora.log
+          rm out/aicheck.sh
+          # A start failure drops the AppImage from the release rather than shipping it broken.
+          if grep -q "START FAILED" ai-*.log; then
+            echo "::warning title=AppImage start test::failed in $(grep -l 'START FAILED' ai-*.log | tr '\n' ' '), AppImage left out"
+            rm -f out/$NAME.AppImage out/$NAME.AppImage.sha256
+          fi
+
+      - name: Leave out an AppImage that failed its test
+        if: steps.prior.outputs.skip != 'true' && steps.aitest.outcome == 'failure'
+        run: |
+          echo "::warning title=AppImage test::failed, AppImage left out"
+          rm -f out/$NAME.AppImage out/$NAME.AppImage.sha256
+
+      # Informational: the installed app starts and stays up under Xvfb.
+      - name: Start test (Xvfb, 20 s)
+        if: steps.prior.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' timeout 20 vommet > start.log 2>&1
+          rc=$?; tail -n 25 start.log
+          [ $rc = 124 ] && echo "still running after 20 s: OK" && exit 0
+          echo "::warning title=deb start test::vommet exited with $rc within 20 s under Xvfb"; exit 1
+
+      - name: Upload
+        if: steps.prior.outputs.skip != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-pkg-${{ matrix.arch }}
+          path: |
+            out/${{ env.NAME }}.deb
+            out/${{ env.NAME }}.deb.sha256
+            out/${{ env.NAME }}.rpm
+            out/${{ env.NAME }}.rpm.sha256
+            out/${{ env.NAME }}.AppImage
+            out/${{ env.NAME }}.AppImage.sha256
+          retention-days: 14
+
+  # A second go at the packages when the first failed or ran out of time (mirror
+  # stalls: 22f's x64 leg timed out, 22g's first run failed 3 apt tries). Same
+  # steps; an arch whose packages already built is skipped. Not a gate either.
+  linux-packages-retry:
+    needs: [meta, linux, linux-packages]
+    if: ${{ !cancelled() && needs.linux.result == 'success' && (needs.linux-packages.result == 'failure' || needs.linux-packages.result == 'cancelled') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+      NAME: vommet-linux-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}
+    steps: *linux-packages-steps
+
+  # Nix flake + Guix package for this release: nether/vommet-packaging pointed
+  # at the two bundles (scripts/update.py), each built for real on both arches
+  # with the bundle pre-seeded in the store under the URL's file name, so the
+  # fixed-output fetch is satisfied without the not-yet-published URL. The x64
+  # leg attaches vommet-nix-<tag>.tar.gz (the flake, for `nix profile install
+  # <url>`) and vommet-guix-<tag>.scm (for `guix package -f`); publish.sh
+  # pushes the same update to vommet-packaging once the release is public.
+  nix:
+    needs: [meta, linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - name: Download both bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-linux-*
+          merge-multiple: true
+
+      - name: Packaging recipes, pointed at this release
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do git clone -q --depth 1 https://nether.codes/nether/vommet-packaging.git pkg && break; [ $i = 3 ] && exit 1; sleep 20; done
+          git -C pkg log -1 --format='vommet-packaging %h %s'
+          sha256sum -c vommet-linux-*-"$TAG".tar.gz.sha256
+          python3 pkg/scripts/update.py "$TAG" "vommet-linux-x64-$TAG.tar.gz.sha256" "vommet-linux-arm64-$TAG.tar.gz.sha256"
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+
+      - name: nix build
+        run: |
+          set -euo pipefail
+          nix-store --add-fixed sha256 "vommet-linux-${{ matrix.arch }}-$TAG.tar.gz"
+          cd pkg
+          [ -f flake.lock ] || nix flake lock
+          nix build -L .#vommet
+          nix flake check --no-build
+          # With the package's own loader: the host's ldd would mix in Ubuntu's glibc.
+          ld=$(readelf -l result/lib/vommet/vommet | sed -n 's/.*interpreter: \(.*\)]/\1/p')
+          missing=$(for f in result/lib/vommet/vommet result/lib/vommet/lib/*.so; do "$ld" --list "$f"; done | grep 'not found' | sort -u || true)
+          [ -z "$missing" ] || { echo "::error title=nix::unresolved libraries: $(echo $missing)"; exit 1; }
+          ls -la result/bin result/share/applications
+
+      - name: Start test (Xvfb, 20 s)
+        continue-on-error: true
+        run: |
+          set +e
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth dbus-x11 >/dev/null
+          # NixOS supplies the GL driver from /run/opengl-driver; point glvnd at nixpkgs' Mesa the same way.
+          mesa=$(nix build --no-link --print-out-paths --inputs-from ./pkg nixpkgs#mesa | head -1)
+          export __EGL_VENDOR_LIBRARY_FILENAMES=$mesa/share/glvnd/egl_vendor.d/50_mesa.json LIBGL_DRIVERS_PATH=$mesa/lib/dri
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' timeout 20 pkg/result/bin/vommet > start.log 2>&1
+          rc=$?; tail -n 25 start.log
+          [ $rc = 124 ] && echo "still running after 20 s: OK" && exit 0
+          echo "::warning title=nix start test::vommet exited with $rc within 20 s under Xvfb"; exit 1
+
+      - name: Pack the flake
+        if: matrix.arch == 'x64'
+        run: |
+          set -euo pipefail
+          f="vommet-nix-$TAG.tar.gz"
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' \
+            --transform "s,^,vommet-nix-$TAG/," -C pkg -czf "$f" flake.nix flake.lock release.json nix LICENSE README.md
+          sha256sum "$f" > "$f.sha256"; cat "$f.sha256"; tar -tzf "$f"
+
+      - name: Upload
+        if: matrix.arch == 'x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-nix
+          path: |
+            vommet-nix-${{ env.TAG }}.tar.gz
+            vommet-nix-${{ env.TAG }}.tar.gz.sha256
+          retention-days: 14
+
+  guix:
+    needs: [meta, linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            system: x86_64-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    env:
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - name: Download both bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-linux-*
+          merge-multiple: true
+
+      - name: Packaging recipes, pointed at this release
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do git clone -q --depth 1 https://nether.codes/nether/vommet-packaging.git pkg && break; [ $i = 3 ] && exit 1; sleep 20; done
+          git -C pkg log -1 --format='vommet-packaging %h %s'
+          sha256sum -c vommet-linux-*-"$TAG".tar.gz.sha256
+          python3 pkg/scripts/update.py "$TAG" "vommet-linux-x64-$TAG.tar.gz.sha256" "vommet-linux-arm64-$TAG.tar.gz.sha256"
+
+      # Recent Guix from the project's CI (what a user who ran `guix pull`
+      # lately has). When ci.guix.gnu.org is down (502s 10-21..23), the last
+      # binary it served (cached, refreshed weekly); only then the 1.5.0
+      # release. vommet.scm loads on 1.5.0 too (keybinder is looked up by
+      # name), so every rung still builds, checks and attaches the .scm.
+      - name: Last good Guix binary
+        id: guixcache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: guix-cache
+          key: guix-binary-${{ matrix.system }}-${{ github.run_id }}
+          restore-keys: guix-binary-${{ matrix.system }}-
+
+      - name: Install Guix
+        run: |
+          set -euo pipefail
+          s=${{ matrix.system }}
+          ok() { [ -s guix.tar.xz ] && tar -tJf guix.tar.xz >/dev/null 2>&1; }
+          if curl -sSfL -m 600 --retry 4 --retry-delay 20 -o guix.tar.xz "https://ci.guix.gnu.org/search/latest/archive?query=spec:tarball+status:success+system:$s+guix-binary.tar.xz" && ok; then
+            echo "Guix: latest from ci.guix.gnu.org"
+            # Re-cache weekly, not per run: the repo's 10 GB cache is full and evicts least-recently-used entries.
+            m="${{ steps.guixcache.outputs.cache-matched-key }}"
+            if [ -z "$m" ] || [[ "${m##*-linux-}" < "$(date -u -d '7 days ago' +%F)" ]]; then
+              mkdir -p guix-cache && cp guix.tar.xz guix-cache/ && echo "GUIX_CACHE_KEY=guix-binary-$s-$(date -u +%F)" >> "$GITHUB_ENV"
+            fi
+          elif cp guix-cache/guix.tar.xz . 2>/dev/null && ok; then
+            echo "::warning title=guix::ci.guix.gnu.org unavailable; using the cached Guix binary (${{ steps.guixcache.outputs.cache-matched-key }})"
+          else
+            echo "::warning title=guix::ci.guix.gnu.org unavailable and no cached Guix binary; falling back to the 1.5.0 release"
+            curl -sSfL -m 600 --retry 4 --retry-delay 20 -o guix.tar.xz "https://ftp.gnu.org/gnu/guix/guix-binary-1.5.0.$s.tar.xz"
+          fi
+          sudo tar --warning=no-timestamp -xf guix.tar.xz -C /; rm guix.tar.xz
+          sudo mkdir -p /root/.config/guix
+          sudo ln -sf /var/guix/profiles/per-user/root/current-guix /root/.config/guix/current
+          sudo groupadd --system guixbuild
+          for i in $(seq -w 1 4); do sudo useradd -g guixbuild -G guixbuild -d /var/empty -s /usr/sbin/nologin -c "Guix build user $i" --system guixbuilder$i; done
+          G=/var/guix/profiles/per-user/root/current-guix
+          sudo "$G/bin/guix" archive --authorize < "$G/share/guix/ci.guix.gnu.org.pub"
+          sudo "$G/bin/guix" archive --authorize < "$G/share/guix/bordeaux.guix.gnu.org.pub"
+          # Ubuntu's AppArmor blocks the unprivileged user namespaces the daemon's build containers need.
+          sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sh -c "$G/bin/guix-daemon --build-users-group=guixbuild --substitute-urls='https://bordeaux.guix.gnu.org https://ci.guix.gnu.org' > /var/log/guix-daemon.log 2>&1 &"
+          sleep 3
+          echo "$G/bin" >> "$GITHUB_PATH"
+          "$G/bin/guix" describe || "$G/bin/guix" --version | head -1
+
+      - name: Cache this Guix binary
+        if: env.GUIX_CACHE_KEY != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: guix-cache
+          key: ${{ env.GUIX_CACHE_KEY }}
+
+      - name: guix build
+        run: |
+          set -euo pipefail
+          guix download "file://$PWD/vommet-linux-${{ matrix.arch }}-$TAG.tar.gz" | tail -1
+          out=$(guix build --no-grafts -f pkg/vommet/packages/vommet.scm | tail -1)
+          echo "built $out"
+          ls -la "$out/bin" "$out/share/applications"
+          # With the package's own loader: the host's ldd would mix in Ubuntu's glibc.
+          ld=$(readelf -l "$out/lib/vommet/vommet" | sed -n 's/.*interpreter: \(.*\)]/\1/p')
+          missing=$(for f in "$out/lib/vommet/vommet" "$out"/lib/vommet/lib/*.so; do "$ld" --list "$f"; done | grep 'not found' | sort -u || true)
+          [ -z "$missing" ] || { echo "::error title=guix::unresolved libraries: $(echo $missing)"; exit 1; }
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          guix lint -c formatting,description,synopsis -L pkg vommet || true
+
+      - name: Start test (Xvfb, 20 s)
+        continue-on-error: true
+        run: |
+          set +e
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth dbus-x11 >/dev/null
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' timeout 20 "$OUT/bin/vommet" > start.log 2>&1
+          rc=$?; tail -n 25 start.log
+          [ $rc = 124 ] && echo "still running after 20 s: OK" && exit 0
+          echo "::warning title=guix start test::vommet exited with $rc within 20 s under Xvfb"; exit 1
+
+      - name: Package file
+        if: matrix.arch == 'x64'
+        run: |
+          f="vommet-guix-$TAG.scm"; cp pkg/vommet/packages/vommet.scm "$f"
+          sha256sum "$f" > "$f.sha256"; cat "$f.sha256"
+
+      - name: Upload
+        if: matrix.arch == 'x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-guix
+          path: |
+            vommet-guix-${{ env.TAG }}.scm
+            vommet-guix-${{ env.TAG }}.scm.sha256
+          retention-days: 14
+
+  # Unsigned universal (arm64 + x86_64) app until there is an Apple Developer
+  # account for signing + notarization (secrets set by the maintainer, never
+  # committed). Testers open it with right-click > Open, or
+  # `xattr -dr com.apple.quarantine /Applications/Vommet.app`.
+  macos:
+    needs: meta
+    # macos-26: connectivity_plus 7.1 needs the macOS 26 SDK (NWPath.isUltraConstrained).
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      NAME: vommet-macos-universal-${{ needs.meta.outputs.tag }}.zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Rust targets (both macOS arches)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Pub get + codegen
+        run: |
+          flutter config --no-analytics --enable-macos-desktop >/dev/null
+          flutter --version
+          cd $PROJECT_PATH
+          # git deps come from nether.codes; retry a dropped connection
+          for i in 1 2 3; do flutter pub get && break; [ $i = 3 ] && exit 1; sleep 30; done
+          dart run scripts/codegen.dart
+
+      - name: Build macOS (release, unsigned)
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd $PROJECT_PATH
+          flutter build macos --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=macos \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=unsigned \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          app=$(ls -d $PROJECT_PATH/build/macos/Build/Products/Release/*.app | head -1)
+          echo "app: $app"; lipo -archs "$app/Contents/MacOS/$(basename "$app" .app)" || true
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$NAME"
+          shasum -a 256 "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-macos
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # Unsigned device build (arm64), packaged as Payload/Runner.app in a zip =
+  # .ipa. Sideloading tools sign it with the tester's own Apple ID.
+  ios:
+    needs: meta
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      NAME: vommet-ios-arm64-${{ needs.meta.outputs.tag }}.ipa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # vommet_hinge (foldable iPhones) needs the iOS 27.1 SDK; the image's
+      # default Xcode may be older. Use the newest Xcode installed.
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          x=$(ls -d /Applications/Xcode_[0-9]*.app | sed -E 's#.*/Xcode_([0-9.]+)(.*)\.app#\1 &#' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -d' ' -f2)
+          sudo xcode-select -s "$x/Contents/Developer"
+          xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # Until a runner has the iOS 27.1 SDK, compile vommet_hinge without its
+      # UIHingeInteraction code (#if on an undefined flag): only foldable
+      # iPhones on iOS 27.1+ lose hinge updates. Fails loudly if the plugin
+      # changed shape; does nothing once the SDK is new enough.
+      - name: vommet_hinge fallback for older iOS SDKs
+        run: |
+          sdk=$(xcrun --sdk iphoneos --show-sdk-version)
+          if printf '27.1\n%s\n' "$sdk" | sort -V -C; then echo "iOS SDK $sdk: hinge code built as is"; exit 0; fi
+          echo "::warning title=iOS hinge::iOS SDK $sdk < 27.1, vommet_hinge built without UIHingeInteraction (foldable iPhones get no hinge updates)"
+          python3 - <<'EOF'
+          import re
+          p = "commet/vommet_hinge/ios/Classes/VommetHingePlugin.swift"
+          s = open(p).read()
+          a = re.subn(r"(\n    let hingeInteraction = UIHingeInteraction \{.*?\n    interaction = hingeInteraction\n)",
+                      r"\n#if VOMMET_HINGE_SDK\1#endif\n", s, flags=re.S)
+          b = re.subn(r"(\n  @available\(iOS 27\.1, \*\)\n  private func report\(.*\n  \}\n)(\}\n?)$",
+                      r"\n#if VOMMET_HINGE_SDK\1#endif\n\2", a[0], flags=re.S)
+          assert a[1] == 1 and b[1] == 1, "VommetHingePlugin.swift changed; update this step"
+          open(p, "w").write(b[0])
+          EOF
+          git diff --stat
+
+      - name: Rust target (iOS device)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
+
+      - name: Pub get + codegen
+        run: |
+          flutter config --no-analytics >/dev/null
+          flutter --version
+          cd $PROJECT_PATH
+          # git deps come from nether.codes; retry a dropped connection
+          for i in 1 2 3; do flutter pub get && break; [ $i = 3 ] && exit 1; sleep 30; done
+          dart run scripts/codegen.dart
+
+      - name: Build iOS (release, no codesign)
+        env:
+          COMMET_PROD: 1
+        run: |
+          cd $PROJECT_PATH
+          flutter build ios --release --no-codesign \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=ios \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=sideload \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - name: Package .ipa
+        run: |
+          set -euo pipefail
+          app=$PROJECT_PATH/build/ios/iphoneos/Runner.app
+          lipo -archs "$app/Runner"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' -c 'Print :CFBundleShortVersionString' "$app/Info.plist"
+          mkdir -p ipa/Payload && cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry -X "$GITHUB_WORKSPACE/$NAME" Payload)
+          shasum -a 256 "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"; ls -la "$NAME"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-ios
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # aarch64 Flatpak (Vommet issue 781); the x86_64 one comes from vommet-linux.
+  # It wraps its own arm64 bundle built with BUILD_DETAIL=flatpak (the tarball
+  # above must stay guix), the same way vommet-linux does: debian:trixie,
+  # privileged for bubblewrap. publish.sh attaches it as
+  # vommet-testing-aarch64.flatpak, the name the in-app updater looks for on
+  # arm64. Not a gate: a failure leaves it out.
+  flatpak-bundle:
+    needs: meta
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - *native-toolchain
+      - *native-rust
+      - *native-flutter
+      - *native-versions
+      - *native-pubget
+
+      - name: Build Linux (release, BUILD_DETAIL=flatpak)
+        env:
+          COMMET_PROD: 1
+          CC: clang
+          CXX: clang++
+        run: |
+          set -euo pipefail
+          cd $PROJECT_PATH
+          flutter build linux --release \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=linux \
+            --dart-define GIT_HASH=${{ needs.meta.outputs.sha }} \
+            --dart-define VERSION_TAG=${{ needs.meta.outputs.tag }} \
+            --dart-define BUILD_DETAIL=flatpak \
+            --dart-define BUILD_DATE=${{ needs.meta.outputs.date }}
+
+      - *native-appid
+
+      - name: Package bundle
+        run: |
+          tar -C $PROJECT_PATH/build/linux/${{ matrix.arch }}/release -czf vommet-linux-flatpak-${{ matrix.arch }}.tar.gz bundle
+          ls -la vommet-linux-flatpak-${{ matrix.arch }}.tar.gz
+
+      # Not native-*: the release job publishes every native-* artifact.
+      - name: Upload bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flatpak-bundle-${{ matrix.arch }}
+          path: vommet-linux-flatpak-${{ matrix.arch }}.tar.gz
+          retention-days: 3
+
+  flatpak:
+    needs: [meta, flatpak-bundle]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
+    container:
+      image: debian:trixie
+      options: --privileged
+    # Container jobs default to sh (dash); the steps use bash.
+    defaults:
+      run:
+        shell: bash
+    env:
+      FLATPAK_STATE_DIR: /var/cache/vommet-flatpak-state
+      NAME: vommet-flatpak-aarch64-${{ needs.meta.outputs.tag }}.flatpak
+    steps:
+      - name: Install flatpak tools
+        run: |
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Each try fetches the lists and the packages under a watchdog, and a retry first moves
+          # to another mirror: the runner's default Ubuntu mirror stalled all 3 tries twice on
+          # 10-22/23 (vommet-native). The install itself then runs from the local cache.
+          su=; [ "$(id -u)" = 0 ] || su=sudo
+          mirror() {
+            local m re
+            . /etc/os-release
+            case $ID in
+              ubuntu) [ "$(dpkg --print-architecture)" = amd64 ] || return 0
+                      re='https?://(?:(?:azure\.)?archive\.ubuntu\.com|mirrors\.edge\.kernel\.org)/ubuntu/?'
+                      m=http://archive.ubuntu.com/ubuntu/; [ $1 = 2 ] && m=http://mirrors.edge.kernel.org/ubuntu/;;
+              debian) re='https?://(?:deb\.debian\.org|ftp\.us\.debian\.org|mirrors\.edge\.kernel\.org)/debian/?'
+                      m=http://mirrors.edge.kernel.org/debian/; [ $1 = 2 ] && m=http://ftp.us.debian.org/debian/;;
+              *) return 0;;
+            esac
+            echo "apt: switching to $m"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              { printf '%s\tpriority:1\n' "$m"; awk -F'priority:' 'NF==2{print $1 "priority:" $2+1; next} {print}' /etc/apt/apt-mirrors.txt; } > mirrors.new
+              $su cp mirrors.new /etc/apt/apt-mirrors.txt; rm mirrors.new
+            fi
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+              [ -f "$f" ] && $su perl -pi -e 's#'"$re"'(?=\s|$)#'"$m"'#g' "$f"
+            done
+            return 0
+          }
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="\
+            ca-certificates git flatpak flatpak-builder elfutils zstd xz-utils bzip2 unzip patch"
+          for i in 1 2 3; do
+            [ $i = 1 ] || mirror $i
+            timeout 150 $su apt-get $o update -qq &&
+              timeout 360 $su apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null && break
+            [ $i = 3 ] && { echo "::error title=apt::package download failed or stalled 3 times"; exit 1; }
+            echo "::warning title=apt::try $i failed or stalled"; sleep 10
+          done
+          $su apt-get install -y -qq --no-install-recommends $p >/dev/null
+          flatpak --version; flatpak-builder --version
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: flatpak-bundle-arm64
+
+      # Module builds (mpv, libplacebo, libass, keybinder...) between runs, per arch.
+      - name: Cache flatpak-builder state
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /var/cache/vommet-flatpak-state
+          key: flatpak-state-aarch64-${{ hashFiles('commet/linux/flatpak/im.nether.chat.yaml') }}
+          restore-keys: flatpak-state-aarch64-
+
+      - name: Install GNOME runtime
+        run: |
+          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          rt=$(sed -n "s/^runtime-version: *'\{0,1\}\([^']*\)'\{0,1\}$/\1/p" commet/linux/flatpak/im.nether.chat.yaml)
+          flatpak install -y --noninteractive --arch=aarch64 flathub "org.gnome.Platform//$rt" "org.gnome.Sdk//$rt"
+
+      # On a base whose manifest still limits the app module to x86_64 the
+      # bundle would come out without the app.
+      - name: Wrap Flatpak
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -o pipefail
+          grep -qx -- '  - aarch64' commet/linux/flatpak/im.nether.chat.yaml || {
+            echo "::error title=flatpak::this base's manifest does not build the app module on aarch64"; exit 1; }
+          bash commet/scripts/build_flatpak.sh vommet-linux-flatpak-arm64.tar.gz "$NAME" "$TAG" 2>&1 | tee build.log || {
+            msg=$(tail -n 40 build.log); msg=${msg//'%'/'%25'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=flatpak failed::$msg"; exit 1; }
+          sha256sum "$NAME" > "$NAME.sha256"; cat "$NAME.sha256"
+
+      - name: Upload Flatpak
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-flatpak-aarch64
+          path: |
+            ${{ env.NAME }}
+            ${{ env.NAME }}.sha256
+          retention-days: 14
+
+  # Attaches whatever built (a failed platform is just missing). Release
+  # assets download without a GitHub login; publish.sh fetches them here.
+  release:
+    needs: [meta, linux, linux-packages, linux-packages-retry, nix, guix, flatpak, macos, ios]
+    if: always() && needs.meta.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          RESULTS: linux ${{ needs.linux.result }}, packages ${{ needs.linux-packages.result }}, packages retry ${{ needs.linux-packages-retry.result }}, nix ${{ needs.nix.result }}, guix ${{ needs.guix.result }}, flatpak ${{ needs.flatpak.result }}, macos ${{ needs.macos.result }}, ios ${{ needs.ios.result }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(vommet-*)
+          [ ${#files[@]} -gt 0 ] || { echo "::error::no platform built ($RESULTS)"; exit 1; }
+          ls -la "${files[@]}"
+          for f in vommet-*.sha256; do sha256sum -c "$f"; done
+          branch="${GITHUB_REF_NAME//\//-}"
+          notes="Native builds of ${GITHUB_REF_NAME} at ${GITHUB_SHA::8}, release tag ${TAG} ($RESULTS). Vommet tester releases: https://nether.codes/nether/vommet/releases"
+          gh release create "native-${branch}-${GITHUB_RUN_NUMBER}" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Native ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER}" --notes "$notes"
