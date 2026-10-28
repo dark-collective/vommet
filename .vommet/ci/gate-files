@@ -1,0 +1,5 @@
+commet/unit_test/attachment_prepare_test.dart
+commet/unit_test/picture_shrink_test.dart
+commet/unit_test/attachment_processor_crop_test.dart
+commet/unit_test/composer_one_bar_test.dart
+commet/unit_test/message_input_enter_send_test.dart
