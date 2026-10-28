@@ -1,0 +1,5 @@
+lib/client/matrix/components/threads/thread_read_scope.dart
+lib/config/preferences.dart
+unit_test/experiments_opt_out_test.dart
+unit_test/thread_read_scope_test.dart
+integration_test/matrix/threads_block_test.dart
