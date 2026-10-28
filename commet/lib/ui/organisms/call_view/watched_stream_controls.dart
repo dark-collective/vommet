@@ -1,0 +1,904 @@
+import 'dart:async';
+
+import 'package:collection/collection.dart';
+import 'package:commet/client/components/rtc_screen_share_annotation/rtc_screen_share_annotation_component.dart';
+import 'package:commet/client/components/voip/voip_session.dart';
+import 'package:commet/client/components/voip/voip_stream.dart';
+import 'package:commet/client/components/voip/voip_stream_watching.dart';
+import 'package:commet/config/platform_utils.dart';
+import 'package:commet/debug/log.dart';
+import 'package:commet/main.dart';
+import 'package:commet/ui/organisms/call_view/multi_stream_focus.dart';
+import 'package:commet/ui/organisms/call_view/stream_mini_player.dart';
+import 'package:commet/ui/organisms/call_view/stream_viewers.dart';
+import 'package:commet/ui/organisms/call_view/stream_watch_card.dart';
+import 'package:commet/ui/molecules/call_card.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+import 'package:window_manager/window_manager.dart';
+import 'package:intl/intl.dart';
+import 'package:commet/ui/atoms/redaction_scope.dart';
+
+/// Vommet: texts of the stream controls that the mini-player shares.
+class WatchedStreamControlsStrings {
+  static String get watchedStreamMute => Intl.message("Mute stream",
+      name: "watchedStreamMute",
+      desc:
+          "Controls over a screen share you're watching: tooltip on the button that mutes the stream's audio");
+
+  static String get watchedStreamUnmute => Intl.message("Unmute stream",
+      name: "watchedStreamUnmute",
+      desc:
+          "Controls over a screen share you're watching: tooltip on the button that unmutes the stream's audio");
+
+  static String get watchedStreamFullscreen => Intl.message("Fullscreen",
+      name: "watchedStreamFullscreen",
+      desc:
+          "Controls over a screen share you're watching: tooltip on the fullscreen button");
+
+  static String get watchedStreamStopWatching => Intl.message("Stop watching",
+      name: "watchedStreamStopWatching",
+      desc:
+          "Controls over a screen share you're watching: button and tooltip that stops watching the stream");
+
+  static String get watchedStreamMuteShort => Intl.message("Mute",
+      name: "watchedStreamMuteShort",
+      desc:
+          "Fullscreen screen share you're watching: short label on the button that mutes the stream's audio");
+
+  static String get watchedStreamUnmuteShort => Intl.message("Unmute",
+      name: "watchedStreamUnmuteShort",
+      desc:
+          "Fullscreen screen share you're watching: short label on the button that unmutes the stream's audio");
+}
+
+/// Vommet: your own call buttons, for the fullscreen stream view.
+class StreamCallActions {
+  const StreamCallActions({
+    this.setMicrophoneMute,
+    this.pickScreenshareSource,
+    this.stopScreenshare,
+    this.pickCamera,
+    this.disableCamera,
+    this.hangUp,
+  });
+
+  final Future<void> Function(bool)? setMicrophoneMute;
+  final Future<void> Function()? pickScreenshareSource;
+  final Future<void> Function()? stopScreenshare;
+  final Future<void> Function()? pickCamera;
+  final Future<void> Function()? disableCamera;
+  final Future<void> Function()? hangUp;
+}
+
+/// Vommet: a stream you're watching, with Discord-style controls that stay
+/// out of the way: they show when you start watching, then fade after a
+/// few seconds. Moving the mouse brings them back (and they stay while the
+/// pointer is over them); a click or tap brings them back (or hides them);
+/// a double-click toggles fullscreen. On touch screens the buttons are
+/// bigger, Stop watching keeps its label and the controls stay up longer.
+class WatchedStreamControls extends StatefulWidget {
+  const WatchedStreamControls({
+    required this.stream,
+    required this.session,
+    required this.child,
+    this.watching,
+    this.onStopWatching,
+    this.onFullscreen,
+    this.onPopOut,
+    this.onShowBig,
+    this.onSideBySide,
+    this.fullscreen = false,
+    this.actions,
+    super.key,
+  });
+
+  final VoipStream stream;
+  final VoipSession session;
+  final VoipStreamWatching? watching;
+  final Widget child;
+  final VoidCallback? onStopWatching;
+
+  /// Enters fullscreen, or leaves it when [fullscreen].
+  final VoidCallback? onFullscreen;
+  final bool fullscreen;
+
+  /// Moves the stream into the floating mini-player.
+  final VoidCallback? onPopOut;
+
+  /// With several streams big: shows this one big, the others beside it.
+  final VoidCallback? onShowBig;
+
+  /// With one stream shown big and others beside it: back to all alike.
+  final VoidCallback? onSideBySide;
+
+  /// Your own call buttons, shown in fullscreen.
+  final StreamCallActions? actions;
+
+  static const Duration hideAfter = Duration(seconds: 3);
+
+  /// After a touch: a tap needs longer to reach a button than a mouse.
+  static const Duration hideAfterTouch = Duration(seconds: 5);
+
+  /// Two taps this close toggle fullscreen.
+  static const Duration doubleTapWithin = Duration(milliseconds: 300);
+
+  @override
+  State<WatchedStreamControls> createState() => _WatchedStreamControlsState();
+}
+
+class _WatchedStreamControlsState extends State<WatchedStreamControls> {
+  String get watchedStreamExitHintTouch => Intl.message(
+      "Double-tap to exit fullscreen",
+      name: "watchedStreamExitHintTouch",
+      desc:
+          "Controls over a screen share you're watching: hint shown when entering fullscreen on a phone");
+
+  String get watchedStreamExitHintDesktop => Intl.message(
+      "Press Esc or double-click to exit fullscreen",
+      name: "watchedStreamExitHintDesktop",
+      desc:
+          "Controls over a screen share you're watching: hint shown when entering fullscreen on a computer");
+
+  String get watchedStreamExitFullscreen => Intl.message("Exit fullscreen",
+      name: "watchedStreamExitFullscreen",
+      desc:
+          "Controls over a screen share you're watching: tooltip on the fullscreen button while fullscreen");
+
+  String get watchedStreamShowCursor => Intl.message(
+      "Show your cursor to the sharer",
+      name: "watchedStreamShowCursor",
+      desc:
+          "Controls over a screen share you're watching: tooltip on the button that shows your mouse pointer on the sharer's screen");
+
+  String get watchedStreamStopSharing => Intl.message("Stop sharing",
+      name: "watchedStreamStopSharing",
+      desc:
+          "Controls over a screen share you're watching: tooltip on the button that stops your own screen share");
+
+  bool _visible = true;
+  bool _hint = false;
+
+  /// The mouse is over one of the control bars: don't hide them under it.
+  bool _overControls = false;
+  Timer? _hideTimer;
+  Timer? _hintTimer;
+  StreamSubscription? _sub;
+  StreamSubscription? _levels;
+  StreamSubscription? _watchSub;
+
+  /// Last used with a finger: bigger buttons, labels, controls up longer.
+  bool _touch = PlatformUtils.isAndroid || PlatformUtils.isIOS;
+  DateTime? _lastTap;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.session.onStateChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
+    // Muted or stopped elsewhere (the long-press menu, fullscreen).
+    _watchSub = widget.watching?.onChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
+    // Who's talking, for the fullscreen view's row of people.
+    if (widget.fullscreen) {
+      _levels = widget.session.onUpdateVolumeVisualizers.listen((_) {
+        if (mounted && _visible) setState(() {});
+      });
+    }
+    _scheduleHide();
+    if (widget.fullscreen) {
+      _hint = true;
+      _hintTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _hint = false);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _hintTimer?.cancel();
+    _sub?.cancel();
+    _levels?.cancel();
+    _watchSub?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    if (_overControls) return;
+    _hideTimer = Timer(
+        _touch
+            ? WatchedStreamControls.hideAfterTouch
+            : WatchedStreamControls.hideAfter, () {
+      if (mounted) setState(() => _visible = false);
+    });
+  }
+
+  void _toggle() {
+    setState(() => _visible = !_visible);
+    if (_visible) {
+      _scheduleHide();
+    } else {
+      _hideTimer?.cancel();
+    }
+  }
+
+  /// A tap shows or hides the controls at once (no waiting to see whether
+  /// it's a double tap); a second tap right after undoes that and toggles
+  /// fullscreen instead.
+  void _onTap() {
+    final now = DateTime.now();
+    final last = _lastTap;
+    if (widget.onFullscreen != null &&
+        last != null &&
+        now.difference(last) < WatchedStreamControls.doubleTapWithin) {
+      _lastTap = null;
+      _toggle();
+      widget.onFullscreen!();
+      return;
+    }
+    _lastTap = now;
+    _toggle();
+  }
+
+  /// Any use of a control keeps them up a while longer.
+  void _poke() {
+    if (!_visible) setState(() => _visible = true);
+    _scheduleHide();
+  }
+
+  /// Keeps the controls up while the mouse is over [child].
+  Widget _holdWhileHovered(Widget child) => MouseRegion(
+        onEnter: (_) {
+          _overControls = true;
+          _hideTimer?.cancel();
+        },
+        onExit: (_) {
+          _overControls = false;
+          _scheduleHide();
+        },
+        child: child,
+      );
+
+  VoipStream? get _audio => widget.session.streams.firstWhereOrNull((s) =>
+      s.participantId == widget.stream.participantId &&
+      s.type == VoipStreamType.screenshareAudio);
+
+  @override
+  Widget build(BuildContext context) {
+    final room = widget.session.client.getRoom(widget.session.roomId);
+    final member = room?.getMemberOrFallback(widget.stream.streamUserId);
+    // Vommet issue 475: redacted mode.
+    final name = RedactionScope.of(context).name(
+        member?.displayName ?? widget.stream.streamUserId,
+        widget.stream.streamUserId);
+    final audio = _audio;
+    final muted = audio != null &&
+        (widget.watching?.isStreamAudioMuted(widget.stream) ?? false);
+    final isShare = widget.stream.type == VoipStreamType.screenshare;
+
+    Widget overlay(Widget child) => IgnorePointer(
+          ignoring: !_visible,
+          child: AnimatedOpacity(
+              opacity: _visible ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: child),
+        );
+
+    return MouseRegion(
+      // In fullscreen the pointer hides with the controls.
+      cursor: widget.fullscreen && !_visible
+          ? SystemMouseCursors.none
+          : MouseCursor.defer,
+      // Moving the mouse brings the controls (and the pointer) back, as
+      // in Discord; before, only a click did. Touches don't hover.
+      onHover: (_) => _poke(),
+      child: Listener(
+        onPointerDown: (e) => _touch = e.kind == PointerDeviceKind.touch,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _onTap,
+          child: Stack(fit: StackFit.expand, children: [
+            widget.child,
+            if (widget.fullscreen)
+              overlay(const IgnorePointer(
+                child: DecoratedBox(
+                    decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: [
+                      0,
+                      .14,
+                      .8,
+                      1
+                    ],
+                            colors: [
+                      Color(0x8c000000),
+                      Colors.transparent,
+                      Colors.transparent,
+                      Color(0x99000000),
+                    ]))),
+              )),
+            if (!widget.fullscreen)
+              Positioned(
+                left: 10,
+                top: 10,
+                right: 10,
+                child: overlay(Row(children: [
+                  if (isShare) ...[
+                    const StreamLivePill(),
+                    const SizedBox(width: 6),
+                  ],
+                  ..._nameAndViewers(name, isShare, muted),
+                ])),
+              ),
+            // Vommet: fullscreen, as on phones: Exit and LIVE at the top left,
+            // the stream's own controls at the top right, its name and who's
+            // in the call below, and only your call buttons at the bottom.
+            if (widget.fullscreen) ...[
+              Positioned(
+                left: 10,
+                top: 10,
+                child: overlay(_holdWhileHovered(Row(children: [
+                  _bar([
+                    _button(Icons.fullscreen_exit, watchedStreamExitFullscreen,
+                        widget.onFullscreen),
+                  ]),
+                  if (isShare) ...[
+                    const SizedBox(width: 8),
+                    const StreamLivePill(size: 11),
+                  ],
+                ]))),
+              ),
+              Positioned(
+                left: 120,
+                right: 10,
+                top: 10,
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Align(
+                    alignment: Alignment.centerRight,
+                    child: overlay(_holdWhileHovered(Listener(
+                      onPointerDown: (_) => _poke(),
+                      child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: _fullscreenBar(
+                              audio, muted, constraints.maxWidth)),
+                    ))),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 10,
+                right: 16,
+                top: _touch ? 62 : 54,
+                child: overlay(Row(children: [
+                  ..._nameAndViewers(name, isShare, muted),
+                  const Spacer(),
+                  const SizedBox(width: 8),
+                  _callPeople(),
+                ])),
+              ),
+            ],
+            if (widget.fullscreen && widget.actions != null)
+              Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 16,
+                  child:
+                      overlay(Center(child: _holdWhileHovered(_ownCallBar())))),
+            if (!widget.fullscreen)
+              Positioned(
+                left: 10,
+                right: 10,
+                bottom: 10,
+                // Vommet: shrinks to fit a small tile (streams side by side).
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Align(
+                    alignment: Alignment.centerRight,
+                    child: overlay(_holdWhileHovered(Listener(
+                      onPointerDown: (_) => _poke(),
+                      child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child:
+                              _streamBar(audio, muted, constraints.maxWidth)),
+                    ))),
+                  ),
+                ),
+              ),
+            if (_hint)
+              Positioned(
+                top: 24,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: .7),
+                          borderRadius: BorderRadius.circular(8)),
+                      child: Text(
+                          PlatformUtils.isAndroid
+                              ? watchedStreamExitHintTouch
+                              : watchedStreamExitHintDesktop,
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white)),
+                    ),
+                  ),
+                ),
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _bar(List<Widget> children) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .75),
+            borderRadius: BorderRadius.circular(10)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: children),
+      );
+
+  Widget _button(IconData icon, String tooltip, VoidCallback? onPressed,
+          {Color? tint}) =>
+      Tooltip(
+        message: tooltip,
+        child: Material(
+          color: tint?.withValues(alpha: .25) ?? Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          child: InkWell(
+            mouseCursor: WidgetStateMouseCursor.clickable,
+            borderRadius: BorderRadius.circular(6),
+            onTap: onPressed == null
+                ? null
+                : () {
+                    _poke();
+                    onPressed();
+                  },
+            child: SizedBox(
+                width: _touch ? 40 : 34,
+                height: _touch ? 40 : 32,
+                child: Icon(icon,
+                    size: _touch ? 21 : 19, color: tint ?? Colors.white)),
+          ),
+        ),
+      );
+
+  /// The stream's name tag (muted speaker when muted) and who watches.
+  List<Widget> _nameAndViewers(String name, bool isShare, bool muted) => [
+        Flexible(
+          child: StreamOverlayTag(name,
+              leading: isShare ? Icons.screen_share : Icons.videocam,
+              trailing: muted ? Icons.volume_off : null),
+        ),
+        // Vommet: who's watching.
+        if (isShare) ...[
+          const SizedBox(width: 6),
+          StreamViewers(session: widget.session, stream: widget.stream),
+        ],
+      ];
+
+  /// A button with its label beside the icon (fullscreen, and Stop
+  /// watching on touch screens).
+  Widget _labeledButton(IconData icon, String label, VoidCallback? onPressed,
+          {Color? tint, Key? key}) =>
+      Material(
+        key: key,
+        color: tint?.withValues(alpha: .25) ?? Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          mouseCursor: WidgetStateMouseCursor.clickable,
+          borderRadius: BorderRadius.circular(6),
+          onTap: onPressed == null
+              ? null
+              : () {
+                  _poke();
+                  onPressed();
+                },
+          child: SizedBox(
+            height: _touch ? 40 : 32,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 18, color: tint ?? Colors.white),
+                const SizedBox(width: 5),
+                Text(label,
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: tint ?? Colors.white)),
+              ]),
+            ),
+          ),
+        ),
+      );
+
+  Widget _divider() => Container(
+      width: 1,
+      height: 20,
+      color: Colors.white24,
+      margin: const EdgeInsets.symmetric(horizontal: 4));
+
+  Widget _volumeSlider(VoipStream audio) => SizedBox(
+        width: 110,
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+              activeTrackColor: Colors.white,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: Colors.white,
+              overlayShape: SliderComponentShape.noOverlay,
+              trackHeight: 3),
+          child: Slider(
+            min: 0,
+            max: 2.5,
+            value: audio.volume.clamp(0.0, 2.5).toDouble(),
+            onChanged: (v) {
+              _poke();
+              setState(() => audio.setVolume(v));
+            },
+          ),
+        ),
+      );
+
+  /// Fullscreen's top-right bar: labeled Mute and Stop watching.
+  Widget _fullscreenBar(VoipStream? audio, bool muted, double room) {
+    final watching = widget.watching;
+    final wide = MediaQuery.of(context).size.width > 700 && room > 480;
+    return _bar([
+      _annotationButton(),
+      if (audio != null && !muted && wide) _volumeSlider(audio),
+      if (audio != null && watching != null)
+        _labeledButton(
+            muted ? Icons.volume_off : Icons.volume_up,
+            muted
+                ? WatchedStreamControlsStrings.watchedStreamUnmuteShort
+                : WatchedStreamControlsStrings.watchedStreamMuteShort,
+            () async {
+          await watching.setStreamAudioMuted(widget.stream, !muted);
+          if (mounted) setState(() {});
+        }, tint: muted ? streamLiveRed : null),
+      if (widget.onStopWatching != null) ...[
+        if (audio != null && watching != null) _divider(),
+        _labeledButton(
+            Icons.close,
+            WatchedStreamControlsStrings.watchedStreamStopWatching,
+            widget.onStopWatching),
+      ],
+    ]);
+  }
+
+  Widget _streamBar(VoipStream? audio, bool muted, double room) {
+    final watching = widget.watching;
+    return LayoutBuilder(builder: (context, _) {
+      // Vommet: not in a small tile either (streams side by side).
+      final wide = MediaQuery.of(context).size.width > 700 && room > 480;
+      return _bar([
+        if (audio != null && watching != null)
+          _button(
+              muted ? Icons.volume_off : Icons.volume_up,
+              muted
+                  ? WatchedStreamControlsStrings.watchedStreamUnmute
+                  : WatchedStreamControlsStrings.watchedStreamMute, () async {
+            await watching.setStreamAudioMuted(widget.stream, !muted);
+            if (mounted) setState(() {});
+          }, tint: muted ? streamLiveRed : null),
+        if (audio != null && !muted && wide) _volumeSlider(audio),
+        if (widget.fullscreen) _annotationButton(),
+        if (!widget.fullscreen && widget.onShowBig != null)
+          _button(Icons.open_in_full_rounded,
+              MultiStreamFocus.multiStreamShowBig, widget.onShowBig),
+        if (!widget.fullscreen && widget.onSideBySide != null)
+          _button(Icons.grid_view_rounded,
+              MultiStreamFocus.multiStreamSideBySide, widget.onSideBySide),
+        if (!widget.fullscreen && widget.onPopOut != null)
+          _button(Icons.picture_in_picture_alt_rounded,
+              StreamMiniPlayer.miniPlayerPopOut, widget.onPopOut),
+        _button(
+            widget.fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            widget.fullscreen
+                ? watchedStreamExitFullscreen
+                : WatchedStreamControlsStrings.watchedStreamFullscreen,
+            widget.onFullscreen),
+        if (widget.onStopWatching != null) ...[
+          _divider(),
+          Tooltip(
+            message: WatchedStreamControlsStrings.watchedStreamStopWatching,
+            child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
+              borderRadius: BorderRadius.circular(6),
+              onTap: widget.onStopWatching,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                    horizontal: 6, vertical: _touch ? 11 : 6),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.close, size: 18, color: Colors.white),
+                  // Vommet: on touch screens the label stays, a bare X is
+                  // too easy to miss.
+                  if (wide || _touch) ...[
+                    const SizedBox(width: 4),
+                    Text(WatchedStreamControlsStrings.watchedStreamStopWatching,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white)),
+                  ],
+                ]),
+              ),
+            ),
+          ),
+        ],
+      ]);
+    });
+  }
+
+  /// Upstream's shared-cursor button from the old fullscreen view.
+  Widget _annotationButton() {
+    final component =
+        widget.session.client.getComponent<RTCScreenShareAnnotationComponent>();
+    if (component == null) return const SizedBox.shrink();
+    return _button(Icons.mouse, watchedStreamShowCursor, () async {
+      await component.getOrCreateSession(widget.session);
+    });
+  }
+
+  /// Who's in the call, lit up while they talk.
+  Widget _callPeople() {
+    final room = widget.session.client.getRoom(widget.session.roomId);
+    final audio = <String, VoipStream>{
+      for (final s in widget.session.streams)
+        if (s.type == VoipStreamType.audio) s.streamUserId: s
+    };
+    final users = audio.keys.take(8);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final id in users)
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Builder(builder: (context) {
+            final m = room?.getMemberOrFallback(id);
+            final talking = (audio[id]?.audiolevel ?? 0) > 0;
+            return Tooltip(
+              message:
+                  RedactionScope.of(context).name(m?.displayName ?? id, id),
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: talking ? const Color(0xff23a55a) : Colors.black54),
+                child: tiamat.Avatar(
+                    radius: 13,
+                    image: m?.avatar,
+                    placeholderColor: m?.defaultColor,
+                    placeholderText: m?.displayName ?? id,
+                    redactionKey: id),
+              ),
+            );
+          }),
+        ),
+    ]);
+  }
+
+  Widget _ownCallBar() {
+    final a = widget.actions!;
+    final session = widget.session;
+    final calls = clientManager?.callManager;
+    final micOff = session.isMicrophoneMuted;
+    final deafened = calls?.isDeafenedIn(session) ?? false;
+    return Listener(
+      onPointerDown: (_) => _poke(),
+      child: _bar([
+        _button(
+            micOff ? Icons.mic_off : Icons.mic,
+            micOff
+                ? CallControlStrings.callControlUnmute
+                : CallControlStrings.callControlMute, () async {
+          await a.setMicrophoneMute?.call(!micOff);
+          if (mounted) setState(() {});
+        }, tint: micOff ? streamLiveRed : null),
+        if (calls != null)
+          _button(
+              deafened ? Icons.headset_off : Icons.headset,
+              deafened
+                  ? CallControlStrings.callControlUndeafen
+                  : CallControlStrings.callControlDeafen, () {
+            calls.toggleDeafenIn(session);
+            setState(() {});
+          }, tint: deafened ? streamLiveRed : null),
+        _button(
+            session.isCameraEnabled
+                ? Icons.no_photography
+                : Icons.camera_alt_outlined,
+            session.isCameraEnabled
+                ? CallControlStrings.callControlTurnOffCamera
+                : CallControlStrings.callControlTurnOnCamera,
+            session.isCameraEnabled ? a.disableCamera : a.pickCamera),
+        _button(
+            session.isSharingScreen
+                ? Icons.stop_screen_share
+                : Icons.screen_share_outlined,
+            session.isSharingScreen
+                ? watchedStreamStopSharing
+                : CallControlStrings.callControlShareScreen,
+            session.isSharingScreen
+                ? a.stopScreenshare
+                : a.pickScreenshareSource),
+        const SizedBox(width: 4),
+        Tooltip(
+          message: CallControlStrings.callControlLeaveCall,
+          child: Material(
+            color: const Color(0xff8c1d18),
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              mouseCursor: WidgetStateMouseCursor.clickable,
+              borderRadius: BorderRadius.circular(8),
+              onTap: () async {
+                Navigator.of(context).maybePop();
+                await a.hangUp?.call();
+              },
+              child: const SizedBox(
+                  width: 40,
+                  height: 30,
+                  child: Icon(Icons.call_end, size: 18, color: Colors.white)),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Vommet: a stream in real fullscreen. On desktop the window goes
+/// fullscreen (and back to how it was afterwards); on phones the system
+/// bars hide. Esc or a double-click leaves.
+class StreamFullscreenView extends StatefulWidget {
+  const StreamFullscreenView(
+      {required this.stream, required this.session, this.actions, super.key});
+
+  final VoipStream stream;
+  final VoipSession session;
+  final StreamCallActions? actions;
+
+  static bool get _desktopWindow =>
+      PlatformUtils.isLinux || PlatformUtils.isWindows;
+
+  static Future<void> open(BuildContext context,
+      {required VoipStream stream,
+      required VoipSession session,
+      StreamCallActions? actions}) async {
+    bool wasFullscreen = false;
+    try {
+      if (_desktopWindow) {
+        wasFullscreen = await windowManager.isFullScreen();
+        if (!wasFullscreen) await windowManager.setFullScreen(true);
+      } else if (PlatformUtils.isAndroid) {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      }
+    } catch (e, s) {
+      Log.onError(e, s, content: "Could not enter fullscreen");
+    }
+    if (!context.mounted) return;
+    await Navigator.of(context, rootNavigator: true).push(PageRouteBuilder(
+      opaque: true,
+      transitionDuration: const Duration(milliseconds: 150),
+      reverseTransitionDuration: const Duration(milliseconds: 150),
+      pageBuilder: (_, __, ___) => StreamFullscreenView(
+          stream: stream, session: session, actions: actions),
+      transitionsBuilder: (_, animation, __, child) =>
+          FadeTransition(opacity: animation, child: child),
+    ));
+    try {
+      if (_desktopWindow) {
+        if (!wasFullscreen) await windowManager.setFullScreen(false);
+      } else if (PlatformUtils.isAndroid) {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
+    } catch (e, s) {
+      Log.onError(e, s, content: "Could not leave fullscreen");
+    }
+  }
+
+  @override
+  State<StreamFullscreenView> createState() => _StreamFullscreenViewState();
+}
+
+class _StreamFullscreenViewState extends State<StreamFullscreenView> {
+  late VoipStream stream = widget.stream;
+  StreamSubscription? _sub;
+  RTCScreenShareAnnotationSession? _annotation;
+
+  /// The shared cursor, once it was switched on with its button.
+  RTCScreenShareAnnotationSession? get _cursor =>
+      _annotation ??= widget.session.client
+          .getComponent<RTCScreenShareAnnotationComponent>()
+          ?.getExistingSession(widget.session);
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.session.onStateChanged.listen((_) => _follow());
+  }
+
+  /// Follows the sharer to a new stream when they switch what they share;
+  /// closes when they stop, or when the call ends.
+  void _follow() {
+    if (!mounted) return;
+    final streams = widget.session.streams;
+    if (widget.session.state == VoipState.ended) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    if (streams.contains(stream)) return;
+    final next = streams.firstWhereOrNull((s) =>
+        s.participantId == stream.participantId && s.type == stream.type);
+    if (next == null) {
+      Navigator.of(context).maybePop();
+    } else {
+      setState(() => stream = next);
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final watching = VoipStreamWatching.of(widget.session);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Material(
+          color: Colors.black,
+          child: LayoutBuilder(builder: (context, box) {
+            return MouseRegion(
+              onHover: (event) => _cursor?.setCursorPosition(
+                  streamId: stream.streamId,
+                  x: event.localPosition.dx / box.maxWidth,
+                  y: event.localPosition.dy / box.maxHeight),
+              child: WatchedStreamControls(
+                key: ValueKey("fullscreen_${stream.streamId}"),
+                stream: stream,
+                session: widget.session,
+                watching: watching,
+                fullscreen: true,
+                actions: widget.actions,
+                onFullscreen: () => Navigator.of(context).maybePop(),
+                // Vommet: Stop watching leaves fullscreen too.
+                onStopWatching: watching != null &&
+                        stream.direction == VoipStreamDirection.incoming &&
+                        stream.type == VoipStreamType.screenshare
+                    ? () {
+                        Navigator.of(context).maybePop();
+                        watching.setWatching(stream, false);
+                      }
+                    : null,
+                child: Center(
+                    child: stream.buildVideoRenderer(
+                            BoxFit.contain,
+                            ValueKey(
+                                "fullscreenRenderer_${stream.streamId}")) ??
+                        const CircularProgressIndicator()),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
