@@ -1,0 +1,52 @@
+// The Android Gradle Plugin builds the native code with the Android NDK.
+// Vommet: no buildscript block; the app's AGP (settings.gradle) applies here.
+
+group = "com.github.bergamot_translator"
+version = "1.0"
+
+apply plugin: "com.android.library"
+
+def vommetAbis() {
+    def map = ["android-arm64": "arm64-v8a", "android-x64": "x86_64"]
+    def asked = rootProject.findProperty("target-platform")
+    def abis = asked ? asked.toString().split(",").collect { map[it.trim()] }.findAll { it != null } : []
+    return abis ?: ["arm64-v8a", "x86_64"]
+}
+
+android {
+    namespace = "com.github.bergamot_translator"
+
+    compileSdk = 36
+
+    // Invoke the shared CMake build with the Android Gradle Plugin.
+    externalNativeBuild {
+        cmake {
+            path = "../src/CMakeLists.txt"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    defaultConfig {
+        // Vommet: the app's flutter.minSdkVersion; upstream asked for 28.
+        minSdk = 24
+        externalNativeBuild {
+            cmake {
+                // marian's file helpers need glob() and iconv(), which bionic has
+                // from API 28 (Android 9). The app keeps its lower minSdk: on older
+                // phones the library fails to load and translation stays hidden.
+                arguments "-DANDROID_PLATFORM=android-28"
+            }
+        }
+        // armeabi-v7a hits missing NEON intrinsics in upstream marian/ruy SIMD code
+        // (e.g. vcvtnq_s32_f32). Vommet ships arm64 only. Each ABI is a full
+        // Marian build, so only the ones Flutter asks for (-Ptarget-platform:
+        // android-arm64 for the release APK); both when it doesn't say.
+        ndk {
+            abiFilters(*vommetAbis())
+        }
+    }
+}
