@@ -1,0 +1,2 @@
+lib/ui/atoms/lightbox_gallery.dart
+unit_test/lightbox_jump_to_message_test.dart
