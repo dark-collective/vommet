@@ -1,0 +1,4 @@
+lib/utils/app_exit.dart
+lib/utils/release_update.dart
+lib/utils/window_management.dart
+unit_test/app_exit_test.dart
