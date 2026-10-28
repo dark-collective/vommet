@@ -1,0 +1,5 @@
+unit_test/video_gif_test.dart
+unit_test/attachment_processor_crop_test.dart
+lib/utils/video_gif.dart
+lib/ui/organisms/attachment_processor/video_gif_trim.dart
+lib/ui/organisms/attachment_processor/attachment_processor.dart
