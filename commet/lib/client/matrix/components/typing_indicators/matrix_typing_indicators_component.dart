@@ -1,0 +1,100 @@
+import 'dart:async';
+
+import 'package:commet/client/components/typing_indicators/typing_indicator_component.dart';
+import 'package:commet/client/matrix/components/matrix_sync_listener.dart';
+import 'package:commet/client/matrix/components/user_presence/ghost_mode.dart';
+import 'package:commet/client/matrix/components/user_presence/matrix_user_presence.dart';
+import 'package:commet/client/matrix/matrix_client.dart';
+import 'package:commet/client/matrix/matrix_member.dart';
+import 'package:commet/client/matrix/matrix_room.dart';
+import 'package:commet/client/member.dart';
+import 'package:matrix/matrix_api_lite/model/sync_update.dart';
+
+class MatrixTypingIndicatorsComponent
+    implements
+        TypingIndicatorComponent<MatrixClient, MatrixRoom>,
+        MatrixRoomSyncListener {
+  @override
+  MatrixClient client;
+  @override
+  MatrixRoom room;
+
+  MatrixTypingIndicatorsComponent(this.client, this.room);
+
+  static const String publicTypingIndicatorKey =
+      "chat.commet.private_typing_indicator";
+
+  final StreamController<void> _controller = StreamController.broadcast();
+
+  /// Vommet: false in every room while ghost mode is on.
+  @override
+  bool? get typingIndicatorEnabledForRoom {
+    if (GhostMode.isOn(client.matrixClient)) return false;
+    var publicTypingIndicatorForRoom = room.matrixRoom
+        .roomAccountData[publicTypingIndicatorKey]?.content["enabled"];
+    return publicTypingIndicatorForRoom is bool
+        ? publicTypingIndicatorForRoom
+        : null;
+  }
+
+  @override
+  Future<void> setTypingIndicatorEnabledForRoom(bool? value) async =>
+      await client.matrixClient.setAccountDataPerRoom(
+        client.matrixClient.userID!,
+        room.matrixRoom.id,
+        publicTypingIndicatorKey,
+        {"enabled": value},
+      );
+
+  @override
+  onSync(JoinedRoomUpdate update) {
+    final ephemeral = update.ephemeral;
+
+    if (ephemeral == null) {
+      return;
+    }
+
+    if (ephemeral.any((e) => e.type == "m.typing")) {
+      _controller.add(null);
+      _scheduleExpiryUpdate();
+    }
+  }
+
+  // Vommet: the SDK drops a room's typing list on its own once
+  // typingIndicatorTimeout passes without a new m.typing (a "stopped typing"
+  // update can get lost, e.g. over federation or with the room outside the
+  // sliding sync window), but tells no one. Listeners kept the old list, so
+  // the room list's typing dots animated, and the window repainted, forever
+  // (Vommet issue 350). Tell them again just after the SDK's timer.
+  Timer? _expiryUpdate;
+
+  void _scheduleExpiryUpdate() {
+    _expiryUpdate?.cancel();
+    _expiryUpdate = null;
+    if (room.matrixRoom.typingUsers.isEmpty) return;
+    _expiryUpdate = Timer(
+        client.matrixClient.typingIndicatorTimeout + const Duration(seconds: 1),
+        () {
+      _expiryUpdate = null;
+      _controller.add(null);
+    });
+  }
+
+  @override
+  Stream<void> get onTypingUsersUpdated => _controller.stream;
+
+  @override
+  List<Member> get typingUsers => room.matrixRoom.typingUsers
+      .where((element) => client.self?.identifier != element.id)
+      .map((e) => MatrixMember(client, e))
+      .toList();
+
+  @override
+  Future<void> setTypingStatus(bool status) async {
+    var typingIndicatorEnabled = client
+        .getComponent<MatrixUserPresenceComponent>()!
+        .typingIndicatorEnabled;
+    if (typingIndicatorEnabledForRoom ?? typingIndicatorEnabled)
+      return room.matrixRoom.setTyping(status, timeout: 2000);
+  }
+}
