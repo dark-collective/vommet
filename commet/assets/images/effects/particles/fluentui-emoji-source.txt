@@ -1,0 +1,2 @@
+fluentui-emoji-*.webp sourced from: https://github.com/microsoft/fluentui-emoji
+Provided under MIT License, Copyright (c) Microsoft Corporation, as of 26th October, 2026
