@@ -1,0 +1,9 @@
+lib/client/components/component_registry.dart
+lib/client/matrix/components/emoticon/matrix_room_emoticon_component.dart
+lib/ui/molecules/emoji_picker.dart
+lib/ui/molecules/emoticon_picker.dart
+lib/ui/molecules/message_input.dart
+lib/ui/molecules/sticker_pack_sheet.dart
+lib/client/components/sticker_shelf/sticker_shelf_component.dart
+lib/client/matrix/components/sticker_shelf/matrix_sticker_shelf_component.dart
+unit_test/sticker_shelf_test.dart
