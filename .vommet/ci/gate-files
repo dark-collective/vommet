@@ -1,0 +1,4 @@
+lib/client/space.dart
+lib/client/space_child.dart
+lib/client/matrix/matrix_space.dart
+lib/ui/pages/manage_space_rooms/manage_space_rooms_page.dart
