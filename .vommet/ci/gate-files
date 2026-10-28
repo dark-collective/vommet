@@ -1,0 +1,14 @@
+lib/utils/bridged_user_rules.dart
+lib/utils/bridged_users.dart
+lib/ui/atoms/bridged_user_marker.dart
+lib/ui/molecules/bridged_dm_banner.dart
+lib/ui/pages/settings/categories/app/bridged_users_settings_page.dart
+unit_test/bridged_user_rules_test.dart
+lib/ui/molecules/user_panel.dart
+lib/ui/organisms/user_profile/user_profile_view.dart
+lib/ui/organisms/user_profile/user_profile.dart
+lib/ui/pages/main/main_page.dart
+lib/ui/organisms/chat/chat_view.dart
+lib/ui/atoms/room_avatar_badge.dart
+lib/ui/organisms/unified_chat_list/unified_chat_rows.dart
+lib/ui/pages/settings/categories/app/settings_category_app.dart
