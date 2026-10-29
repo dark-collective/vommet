@@ -1,0 +1,399 @@
+import 'dart:async';
+
+import 'package:commet/client/components/component.dart';
+import 'package:commet/client/components/user_presence/user_presence_component.dart';
+import 'package:commet/client/components/user_presence/user_presence_lifecycle_watcher.dart';
+import 'package:commet/client/matrix/components/read_receipts/matrix_read_receipt_component.dart';
+import 'package:commet/client/matrix/components/typing_indicators/matrix_typing_indicators_component.dart';
+import 'package:commet/client/matrix/components/user_presence/ghost_mode.dart';
+import 'package:commet/client/matrix/matrix_client.dart';
+import 'package:commet/main.dart';
+import 'package:commet/utils/in_memory_cache.dart';
+import 'package:matrix/matrix.dart';
+
+class MatrixUserPresenceComponent
+    implements UserPresenceComponent<MatrixClient>, NeedsCloseOnClientClose {
+  @override
+  MatrixClient client;
+
+  StreamController<(String, UserPresence)> _controller =
+      StreamController.broadcast();
+
+  late InMemoryCache<DateTime> lastSeen;
+
+  // Vommet: kept so onClientClosed can stop them.
+  final List<StreamSubscription> _subs = [];
+  bool _closed = false;
+
+  MatrixUserPresenceComponent(this.client) {
+    _subs.add(client.matrixClient.onPresenceChanged.stream.listen(changed));
+
+    _subs.add(client.matrixClient.onSync.stream.listen(onSync));
+    lastSeen = InMemoryCache(
+        maxRetention: Duration(minutes: 2),
+        pollFrequency: Duration(seconds: 100));
+    _subs.add(lastSeen.onRemove.listen(onLastSeenRemoved));
+
+    _applySyncPresence();
+    _subs.add(preferences.experimentQuickProfileControls.onChanged
+        .listen((_) => _applySyncPresence()));
+
+    UserPresenceLifecycleWatcher().init();
+  }
+
+  @override
+  bool get usePublicReadReceipts {
+    var publicReadReceipts = client
+        .matrixClient
+        .accountData[MatrixReadReceiptComponent.publicReadReceiptsKey]
+        ?.content["enabled"];
+    return publicReadReceipts is bool ? publicReadReceipts : true;
+  }
+
+  @override
+  Future<void> setUsePublicReadReceipts(bool value) async {
+    await client.matrixClient.setAccountData(
+      client.matrixClient.userID!,
+      MatrixReadReceiptComponent.publicReadReceiptsKey,
+      {"enabled": value},
+    );
+    client.matrixClient.receiptsPublicByDefault = value && !ghostMode;
+  }
+
+  @override
+  bool get ghostMode => GhostMode.isOn(client.matrixClient);
+
+  @override
+  Future<void> setGhostMode(bool value) async {
+    await GhostMode.set(client.matrixClient, value);
+    client.matrixClient.receiptsPublicByDefault =
+        usePublicReadReceipts && !value;
+  }
+
+  @override
+  bool get typingIndicatorEnabled {
+    var publicTypingIndicator = client
+        .matrixClient
+        .accountData[MatrixTypingIndicatorsComponent.publicTypingIndicatorKey]
+        ?.content["enabled"];
+    return publicTypingIndicator is bool ? publicTypingIndicator : true;
+  }
+
+  @override
+  Future<void> setTypingIndicatorEnabled(bool value) async =>
+      await client.matrixClient.setAccountData(
+        client.matrixClient.userID!,
+        MatrixTypingIndicatorsComponent.publicTypingIndicatorKey,
+        {"enabled": value},
+      );
+
+  @override
+  Future<UserPresence> getUserPresence(String userId) async {
+    final presence = await client.matrixClient.fetchCurrentPresence(userId);
+    _learnServer(presence);
+    return _recentlyActive(userId, presence) ?? convertPresence(presence);
+  }
+
+  @override
+  UserPresence? cachedPresence(String userId) {
+    // The SDK's in-memory presence cache (filled by sync): the member list
+    // sorts hundreds of members per frame and can't await
+    // fetchCurrentPresence for each.
+    // ignore: deprecated_member_use
+    final presence = client.matrixClient.presences[userId];
+    _learnServer(presence);
+    final recent = _recentlyActive(userId, presence);
+    if (recent != null || presence == null) return recent;
+    return convertPresence(presence);
+  }
+
+  /// Online if the server tells us nothing better than "offline" (or nothing
+  /// at all) but the user sent something in the last two minutes. Vommet:
+  /// shared by the member list's sections and the presence dot, which used
+  /// different rules, so someone talking could sit under "Offline" with a
+  /// green dot.
+  UserPresence? _recentlyActive(String userId, CachedPresence? presence) =>
+      recentlyActive(presence, lastSeen.get(userId), DateTime.now(),
+          liveServer: _hasLivePresence(userId));
+
+  /// The rule behind [_recentlyActive], without the component's state:
+  /// [seen] is the user's latest message, typing or receipt, and
+  /// [liveServer] whether their homeserver has shown anyone online, idle or
+  /// with a status this session.
+  static UserPresence? recentlyActive(
+      CachedPresence? presence, DateTime? seen, DateTime now,
+      {required bool liveServer}) {
+    if (seen == null || now.difference(seen).inSeconds >= 120) return null;
+    if (!sightingCounts(presence, seen, liveServer: liveServer)) return null;
+    return UserPresence(UserPresenceStatus.online);
+  }
+
+  /// Whether a sighting at [seen] may show the user as online. Always when
+  /// the server tells us no more than "offline". Vommet issue 907: the SDK
+  /// keeps the first presence answer forever, so a remote server's stale
+  /// "offline, last active N ago" also turned this off for good. A sighting
+  /// newer than that last-active time counts too, but only on servers that
+  /// never showed live presence: where they do, "offline" can be Invisible
+  /// mode and stays offline.
+  static bool sightingCounts(CachedPresence? presence, DateTime seen,
+      {required bool liveServer}) {
+    if (_onlyKnownOffline(presence)) return true;
+    if (liveServer || presence!.presence != PresenceType.offline) {
+      return false;
+    }
+    final lastActive = presence.lastActiveTimestamp;
+    return lastActive == null || seen.isAfter(lastActive);
+  }
+
+  /// Whether the server says no more than "offline": no status message and
+  /// no last-active time (or no presence at all).
+  static bool _onlyKnownOffline(CachedPresence? presence) =>
+      presence == null ||
+      (presence.presence == PresenceType.offline &&
+          presence.statusMsg == null &&
+          presence.lastActiveTimestamp == null);
+
+  /// Vommet: homeservers that have shown real presence this session (someone
+  /// online, idle, with a status or a last-active time). A server with
+  /// presence turned off answers "offline" for everyone, so its "offline"
+  /// means "unknown" until it shows otherwise. In memory only, so a server
+  /// that turns presence on is believed as soon as it shows it.
+  final Set<String> _presenceServers = {};
+
+  /// Vommet issue 907: the subset of [_presenceServers] that showed someone
+  /// online, idle or with a status. A last-active time alone may just be one
+  /// old answer the SDK cached forever.
+  final Set<String> _livePresenceServers = {};
+
+  bool _hasLivePresence(String userId) =>
+      _livePresenceServers.contains(_serverOf(userId));
+
+  static String _serverOf(String userId) =>
+      userId.substring(userId.indexOf(':') + 1);
+
+  void _learnServer(CachedPresence? presence) {
+    if (presence == null || _onlyKnownOffline(presence)) return;
+    final server = _serverOf(presence.userid);
+    if (presence.presence != PresenceType.offline ||
+        presence.statusMsg != null) {
+      _livePresenceServers.add(server);
+    }
+    if (!_presenceServers.add(server)) return;
+    // Its people shown as unknown so far are really offline.
+    // ignore: deprecated_member_use
+    for (final other in client.matrixClient.presences.values.toList()) {
+      if (other.userid != presence.userid &&
+          _onlyKnownOffline(other) &&
+          _serverOf(other.userid) == server &&
+          _recentlyActive(other.userid, other) == null) {
+        _controller.add((other.userid, convertPresence(other)));
+      }
+    }
+  }
+
+  UserPresence convertPresence(CachedPresence presence) {
+    final status = switch (presence.presence) {
+      PresenceType.offline
+          when _onlyKnownOffline(presence) &&
+              !_presenceServers.contains(_serverOf(presence.userid)) =>
+        UserPresenceStatus.unknown,
+      PresenceType.offline => UserPresenceStatus.offline,
+      PresenceType.online => UserPresenceStatus.online,
+      PresenceType.unavailable => UserPresenceStatus.unavailable,
+    };
+
+    UserPresenceMessage? message = null;
+
+    if (presence.statusMsg != null) {
+      message = UserPresenceMessage(
+          presence.statusMsg!, PresenceMessageType.userCustom);
+    }
+
+    return UserPresence(status,
+        message: message, lastActive: presence.lastActiveTimestamp);
+  }
+
+  void changed(CachedPresence event) {
+    _learnServer(event);
+    _controller.add((event.userid, convertPresence(event)));
+  }
+
+  @override
+  Stream<(String, UserPresence)> get onPresenceChanged => _controller.stream;
+
+  static const presenceModes = ["online", "idle", "invisible"];
+
+  /// Only while the profile controls experiment is on; otherwise presence
+  /// follows app activity as in Commet.
+  @override
+  String get presenceMode => preferences.experimentQuickProfileControls.value
+      ? preferences.getPresenceMode(client.identifier)
+      : "online";
+
+  /// The presence a chosen mode pins, or null when it follows app activity.
+  UserPresenceStatus? get _pinnedStatus => switch (presenceMode) {
+        "idle" => UserPresenceStatus.unavailable,
+        "invisible" => UserPresenceStatus.offline,
+        _ => null,
+      };
+
+  /// /sync marks the user online unless told otherwise, which would undo
+  /// idle and invisible on the next sync.
+  void _applySyncPresence() {
+    client.matrixClient.syncPresence = switch (presenceMode) {
+      "idle" => PresenceType.unavailable,
+      "invisible" => PresenceType.offline,
+      _ => null,
+    };
+  }
+
+  @override
+  Future<void> setPresenceMode(String mode) async {
+    await preferences.setPresenceMode(client.identifier, mode);
+    _applySyncPresence();
+    await setStatus(UserPresenceStatus.online);
+  }
+
+  @override
+  Future<void> setStatus(UserPresenceStatus status,
+      {String? message, bool clearMessage = false}) async {
+    // Vommet: an account that failed to load, is mid sign-in or sign-out, or
+    // whose client has closed has no access token, and getPresence threw a
+    // null check error for it (Vommet issue 339).
+    if (_closed || !client.isLoggedIn()) return;
+    final self = client.matrixClient.userID;
+    if (self == null) return;
+
+    status = _pinnedStatus ?? status;
+
+    final current = await client.matrixClient.getPresence(self);
+
+    await client.matrixClient.setPresence(
+        self,
+        statusMsg: clearMessage ? null : message ?? current.statusMsg,
+        switch (status) {
+          UserPresenceStatus.offline => PresenceType.offline,
+          UserPresenceStatus.unknown => PresenceType.offline,
+          UserPresenceStatus.online => PresenceType.online,
+          UserPresenceStatus.unavailable => PresenceType.unavailable,
+        });
+  }
+
+  void onSync(SyncUpdate event) {
+    if (event.rooms?.join != null) {
+      for (var update in event.rooms!.join!.entries) {
+        handleEvents(update.value.ephemeral);
+        handleEvents(update.value.state);
+        handleTimelineUpdate(update.value.timeline);
+      }
+    }
+  }
+
+  void handleEvents(List<BasicEvent>? events) {
+    if (events == null) return;
+    var time = DateTime.now();
+
+    for (var event in events) {
+      try {
+        if (event.type == "m.typing") {
+          handleTyping(event, time);
+          return;
+        }
+
+        if (event.type == "m.receipt") {
+          handleReadReceipt(event);
+          return;
+        }
+
+        if (event.type == "m.room.member") {
+          handleRoomMemberEvent(event);
+          return;
+        }
+      } catch (_) {}
+    }
+  }
+
+  void handleTyping(BasicEvent event, DateTime time) {
+    for (var id in event.content["user_ids"] as List<dynamic>) {
+      sawUser(id, time);
+    }
+  }
+
+  void handleReadReceipt(BasicEvent event) {
+    for (var event in event.content.values) {
+      var read = (event as Map<String, dynamic>)["m.read"];
+      if (read == null) continue;
+
+      for (var entry in (read as Map<String, dynamic>).entries) {
+        var value = entry.value as Map<String, dynamic>;
+
+        if (value.containsKey("ts")) {
+          sawUser(entry.key,
+              DateTime.fromMicrosecondsSinceEpoch((value["ts"] as int) * 1000));
+        }
+      }
+    }
+  }
+
+  void handleTimelineUpdate(TimelineUpdate? timeline) async {
+    if (timeline?.events == null) return;
+
+    for (var event in timeline!.events!) {
+      sawUser(event.senderId, event.originServerTs);
+    }
+  }
+
+  @override
+  Future<void> onClientClosed() async {
+    _closed = true;
+    for (final sub in _subs) {
+      await sub.cancel();
+    }
+    _subs.clear();
+    lastSeen.dispose();
+  }
+
+  void sawUser(String id, DateTime timestamp) async {
+    if (_closed) return;
+    // Vommet: only a sighting from the last minute counts, so drop older
+    // ones before the presence lookup. Every timeline event, receipt and
+    // typing user lands here, and for anyone without cached presence the
+    // lookup is a database query: catching up after a while away queued
+    // thousands of them in front of saving the sync.
+    if (DateTime.now().difference(timestamp).inSeconds >= 60) return;
+    final presence = await client.matrixClient
+        .fetchCurrentPresence(id, fetchOnlyFromCached: true);
+    if (_closed) return;
+
+    if (!sightingCounts(presence, timestamp,
+        liveServer: _hasLivePresence(id))) {
+      return;
+    }
+
+    if (DateTime.now().difference(timestamp).inSeconds < 60) {
+      var seen = lastSeen.get(id);
+
+      if (seen == null) {
+        lastSeen.put(id, timestamp);
+      } else {
+        if (timestamp.isAfter(seen)) {
+          lastSeen.put(id, timestamp);
+        }
+      }
+
+      _controller.add((id, UserPresence(UserPresenceStatus.online)));
+    }
+  }
+
+  void onLastSeenRemoved(String event) async {
+    if (_closed) return;
+    final presence = await client.matrixClient
+        .fetchCurrentPresence(event, fetchOnlyFromCached: true);
+    if (_closed) return;
+    if (presence.presence == PresenceType.offline) {
+      _controller.add((event, convertPresence(presence)));
+    }
+  }
+
+  void handleRoomMemberEvent(BasicEvent event) {}
+}
