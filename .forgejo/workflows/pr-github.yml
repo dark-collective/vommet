@@ -1,0 +1,274 @@
+name: pr-github
+
+# Pull request builds on the GitHub copy (2026-10-18). build.yml no longer
+# builds pull requests here (~17 h a week of the main runner's single slot);
+# instead this job, every 10 minutes on the light runner:
+#   1. copies each open PR's head to github.com/dark-collective/vommet as the
+#      TAG ci-pr-<number>: one parentless snapshot commit (no history, message
+#      "Vommet pull request <n> snapshot of <sha>", as github-copy.yml does for
+#      branches) whose .github/ holds ONLY vommet-pr.yml from ci/windows-release;
+#      GitHub runs that workflow (format, codegen, analyze, unit tests, Linux
+#      release build) with no secrets and a read-only token;
+#   2. mirrors the GitHub result onto the PR head as the commit status
+#      "build / linux (github)" (pending while it builds), with the failing
+#      lines from the run's annotations in the description;
+#   3. deletes the tags of PRs that are no longer open.
+#   4. cancels Forgejo build.yml pull_request runs that are still WAITING for
+#      a runner when GitHub already builds their exact commit. PR branches
+#      based on an older main carry a build.yml that still builds pull
+#      requests here, and a burst of them blocked a cut's sync/main build for
+#      hours (2026-10-18; operator: new PR builds go to GitHub and must stop
+#      blocking). Running jobs and every other workflow/event are left alone.
+# A tag, not a branch: github-copy.yml deletes every GitHub branch that isn't
+# one of its snapshots, and older copies of it live on other branches.
+#
+# PR code is untrusted, and this job holds GH_COPY_TOKEN, so it never checks
+# out, builds or runs anything from a PR: it reads PR trees as git objects
+# (fetch, ls-tree, mktree) and only ever pushes. The workflow GitHub runs is
+# always ours, never the PR's. Fork PRs are copied only when their author has
+# write access to nether/vommet (and owns the fork), or once someone with
+# write access adds the label "ci-approved", or when their author is listed
+# in .vommet/ci/trusted-pr-authors on main (one login per line; CI only, no
+# push or merge rights). Fork PRs from anyone else are left alone. Same-repo
+# PRs come from people who can push here anyway.
+#
+# Unit gates (2026-10-18, operator: Option A of the stage-gates proposal):
+# sessions push a merged check tree as the Forgejo branch gate/<name>
+# (vommet-tools/gate.sh), optionally with .vommet/ci/gate-files, and dispatch
+# this workflow with input gate=<name> (or wait for the next 10-minute run).
+# It is copied the same way, as the tag ci-gate-<name> carrying vommet-gate.yml
+# (format, pub get, codegen, analyze, unit tests; TEMPLATE.sh's steps), and the
+# result lands on the gate commit as "gate / unit (github)". Gate branches and
+# their tags are deleted 3 days after their last commit. Gate branches come
+# from people who can push here, like same-repo PRs.
+#
+# GitHub runs 20 jobs at once for the whole account, shared with the release
+# builds (5 per cut): at most MAX_ACTIVE PR + gate jobs run at a time, PR
+# builds at most MAX_ACTIVE_PR of them, so a burst can't delay a cut and gates
+# never wait behind a PR backlog. Gates go first.
+#
+# Scheduled workflows run from main only; workflow_dispatch works from any
+# branch (trial runs: input "only" = one PR number, or "gate" = one gate).
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Only this PR number (empty: all open PRs)'
+        default: ''
+      gate:
+        description: 'Only this gate (branch gate/<name>); skips PRs and pruning'
+        default: ''
+
+concurrency:
+  group: pr-github
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN_COPY: ${{ secrets.GH_COPY_TOKEN }}
+  FJ_TOKEN: ${{ secrets.SYNC_TOKEN }}
+  SRC: ${{ github.server_url }}/${{ github.repository }}.git
+  API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+  DEST: github.com/dark-collective/vommet.git
+  GH_API: https://api.github.com/repos/dark-collective/vommet
+  ONLY: ${{ inputs.only || '' }}
+  GATE: ${{ inputs.gate || '' }}
+  # A pending status with no finished GitHub run after this long becomes an error.
+  STALE_MIN: 180
+  # PR copies per run (most recently updated PRs first); concurrency caps above.
+  MAX_COPIES: 3
+  MAX_ACTIVE: 8
+  MAX_ACTIVE_PR: 5
+  GATE_DAYS: 3
+
+jobs:
+  sync:
+    runs-on: light
+    timeout-minutes: 20
+    steps:
+      - name: Install tools
+        run: |
+          command -v jq >/dev/null && exit 0
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends curl ca-certificates jq git >/dev/null
+
+      - name: Copy PR heads and gates, mirror results, prune
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN_COPY:-}" ] || [ -z "${FJ_TOKEN:-}" ]; then
+            echo "GH_COPY_TOKEN or SYNC_TOKEN not set; skipping"; exit 0
+          fi
+          [[ -z $GATE || $GATE =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "::error::bad gate name"; exit 1; }
+          [[ -z $ONLY || $ONLY =~ ^[0-9]+$ ]] || { echo "::error::bad PR number"; exit 1; }
+          fj() { curl -fsS -m 60 -H "Authorization: token $FJ_TOKEN" "$@"; }
+          post() {  # sha context state description target_url
+            local d=${4:0:240}
+            fj -o /dev/null -X POST -H 'Content-Type: application/json' \
+              -d "$(jq -n --arg c "$2" --arg s "$3" --arg d "$d" --arg u "$5" \
+                    '{state:$s,context:$c,description:$d,target_url:$u}')" "$API/statuses/$1" \
+              && echo "  $2: $3 $d" || echo "::warning::could not post the status on $1"
+          }
+          url="https://x-access-token:${GH_TOKEN_COPY}@${DEST}"
+          srcpush="https://x:${FJ_TOKEN}@${SRC#https://}"
+          export GIT_AUTHOR_NAME='Vommet snapshot' GIT_AUTHOR_EMAIL='snapshot@nether.codes'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          git init -q w && cd w
+
+          # Our .github/ for every snapshot: ONE workflow, from ci/windows-release.
+          git fetch -q --depth=1 --no-tags "$SRC" +refs/heads/ci/windows-release:refs/trusted
+          # Fork PR authors whose PRs build without the label, read from main (never from a PR).
+          git fetch -q --depth=1 --no-tags "$SRC" +refs/heads/main:refs/main
+          declare -A TRUSTED=()
+          while read -r u; do
+            [[ $u =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] && TRUSTED[$u]=1
+          done < <(git show refs/main:.vommet/ci/trusted-pr-authors 2>/dev/null | sed 's/#.*//' || true)
+          declare -A GHDIR=()
+          for f in vommet-pr.yml vommet-gate.yml; do
+            blob=$(git rev-parse "refs/trusted:.github/workflows/$f")
+            wf=$(printf '100644 blob %s\t%s\n' "$blob" "$f" | git mktree)
+            GHDIR[$f]=$(printf '040000 tree %s\tworkflows\n' "$wf" | git mktree)
+          done
+
+          # Work items, gates first: kind key sha ref tag workflow context fork ok user owner
+          items='[]'
+          if [ -z "$ONLY" ]; then
+            while read -r sha ref; do
+              name=${ref#refs/heads/gate/}
+              [[ $sha =~ ^[0-9a-f]{40}$ && $name =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "::warning::ignoring branch $ref (name must be [a-z0-9-])"; continue; }
+              [ -z "$GATE" ] || [ "$GATE" = "$name" ] || continue
+              items=$(jq -c --arg k "$name" --arg s "$sha" '. + [{kind:"gate", key:$k, sha:$s,
+                ref:("refs/heads/gate/" + $k), tag:("ci-gate-" + $k), wf:"vommet-gate.yml", ctx:"gate / unit (github)",
+                fork:false, ok:true, user:"", owner:""}]' <<<"$items")
+            done < <(git ls-remote --heads "$SRC" 'refs/heads/gate/*')
+          fi
+          if [ -z "$GATE" ]; then
+            for page in 1 2 3 4 5 6; do
+              p=$(fj "$API/pulls?state=open&sort=recentupdate&limit=50&page=$page")
+              items=$(jq -c --argjson a "$items" '$a + [.[] | {kind:"pr", key:(.number|tostring), sha:.head.sha,
+                      ref:("refs/pull/" + (.number|tostring) + "/head"), tag:("ci-pr-" + (.number|tostring)),
+                      wf:"vommet-pr.yml", ctx:"build / linux (github)",
+                      fork:((.head.repo.full_name // "") != (.base.repo.full_name // "")),
+                      ok:(any(.labels[]?; .name == "ci-approved")),
+                      user:.user.login, owner:(.head.repo.owner.login // "")}]' <<<"$p")
+              [ "$(jq length <<<"$p")" -lt 50 ] && break
+            done
+          fi
+          echo "$(jq '[.[]|select(.kind=="gate")]|length' <<<"$items") gate(s), $(jq '[.[]|select(.kind=="pr")]|length' <<<"$items") open PR(s)"
+          # Recent GitHub runs, one anonymous request (public repo; 60/h per IP).
+          runs=$(curl -fsS -m 60 "$GH_API/actions/runs?event=push&per_page=100" 2>/dev/null \
+            | jq -c '[.workflow_runs[]? | select(.name == "vommet-pr" or .name == "vommet-gate")
+                      | {id, name, status, conclusion, html_url, b:.head_branch, msg:.head_commit.message}]' || echo null)
+          [ "$runs" != null ] || echo "::warning::GitHub runs list unavailable this time; results are mirrored next run"
+
+          declare -A writer=()
+          can_write() {  # login -> 0 when write/admin/owner on this repo
+            local u=$1
+            if [ -z "${writer[$u]+x}" ]; then
+              writer[$u]=$(fj "$API/collaborators/$u/permission" 2>/dev/null | jq -r '.permission // "none"' || echo none)
+            fi
+            case ${writer[$u]} in write|admin|owner) return 0;; *) return 1;; esac
+          }
+
+          active=0 active_pr=0
+          if [ "$runs" != null ]; then
+            active=$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")
+            active_pr=$(jq '[.[] | select(.status != "completed" and .name == "vommet-pr")] | length' <<<"$runs")
+          fi
+          copies=0 copies_pr=0
+          while read -r row; do
+            kind=$(jq -r .kind <<<"$row"); key=$(jq -r .key <<<"$row"); sha=$(jq -r .sha <<<"$row")
+            ref=$(jq -r .ref <<<"$row"); tag=$(jq -r .tag <<<"$row"); wfile=$(jq -r .wf <<<"$row"); ctx=$(jq -r .ctx <<<"$row")
+            [[ $sha =~ ^[0-9a-f]{40}$ && $key =~ ^[a-z0-9-]+$ ]] || { echo "::warning::skipping malformed entry"; continue; }
+            [ -z "$ONLY" ] || [ "$ONLY" = "$key" ] || continue
+            what="$kind $key ${sha:0:8}"
+            st=$(fj "$API/commits/$sha/status" | jq -c --arg c "$ctx" '[.statuses[]? | select(.context == $c)] | max_by(.id) // {}') \
+              || { echo "::warning::$what: status lookup failed"; continue; }
+            state=$(jq -r '.status // "none"' <<<"$st")
+            case $state in
+              success|failure|error) continue ;;
+              pending)
+                [ "$runs" != null ] || continue
+                r=$(jq -c --arg b "$tag" --arg s "$sha" \
+                  '[.[] | select(.b == $b and (.msg | contains($s)))] | max_by(.id) // empty' <<<"$runs")
+                if [ -n "$r" ] && [ "$(jq -r .status <<<"$r")" = completed ]; then
+                  id=$(jq -r .id <<<"$r"); c=$(jq -r .conclusion <<<"$r"); u=$(jq -r .html_url <<<"$r")
+                  echo "$what: GitHub run $id $c"
+                  if [ "$c" = success ]; then post "$sha" "$ctx" success "GitHub run $id" "$u"
+                  else
+                    why=$(curl -fsS -m 60 "$GH_API/actions/runs/$id/jobs" 2>/dev/null \
+                      | jq -r '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | .id][0] // empty' || true)
+                    [ -z "$why" ] || why=$(curl -fsS -m 60 "$GH_API/check-runs/$why/annotations" 2>/dev/null \
+                      | jq -r '[.[] | select(.annotation_level == "failure" and (.message | startswith("Process completed") | not)) | (.title + ": " + .message)][0] // ""' | tr '\n' ' ' || true)
+                    post "$sha" "$ctx" failure "GitHub run $id $c${why:+: $why}" "$u"
+                  fi
+                elif [ -z "$r" ]; then
+                  age=$(( ( $(date +%s) - $(date -d "$(jq -r .updated_at <<<"$st")" +%s) ) / 60 ))
+                  if [ "$age" -ge "$STALE_MIN" ]; then post "$sha" "$ctx" error "no GitHub run after $age min" ""; fi
+                fi
+                continue ;;
+            esac
+
+            # Not copied yet. Fork PRs need a trusted author or the ci-approved label.
+            if [ "$(jq -r .fork <<<"$row")" = true ] && [ "$(jq -r .ok <<<"$row")" != true ]; then
+              user=$(jq -r .user <<<"$row"); owner=$(jq -r .owner <<<"$row")
+              if ! { [ "$user" = "$owner" ] && { [ -n "${TRUSTED[$user]+x}" ] || can_write "$user"; }; }; then
+                echo "$what: fork PR by $user without write access, trusted-pr-authors entry or ci-approved label; not copied"; continue
+              fi
+            fi
+            if [ "$((active + copies))" -ge "$MAX_ACTIVE" ] || { [ "$kind" = pr ] && \
+                 { [ "$copies_pr" -ge "$MAX_COPIES" ] || [ "$((active_pr + copies_pr))" -ge "$MAX_ACTIVE_PR" ]; }; }; then
+              echo "$what: waiting (GitHub busy: $active active, $copies copied this run)"; continue
+            fi
+            git fetch -q --depth=1 --no-tags "$SRC" "+$ref:refs/item/$tag" || { echo "::warning::$what: fetch failed"; continue; }
+            [ "$(git rev-parse "refs/item/$tag")" = "$sha" ] || { echo "$what moved while fetching; next run"; continue; }
+            # The top-level tree minus its .github/, plus ours.
+            tree=$( { git ls-tree "$sha" | grep -v -P '\t\.github$' || true; printf '040000 tree %s\t.github\n' "${GHDIR[$wfile]}"; } | git mktree)
+            date=$(git log -1 --format=%cd --date=raw "$sha")
+            if [ "$kind" = pr ]; then msg="Vommet pull request $key snapshot of $sha"; else msg="Vommet gate $key snapshot of $sha"; fi
+            if grep -Eq '#[0-9]|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|GH-[0-9]' <<<"$msg"; then echo "::error::issue-linking message"; exit 1; fi
+            snap=$(GIT_AUTHOR_DATE="$date" GIT_COMMITTER_DATE="$date" git -c commit.gpgsign=false commit-tree "$tree" -m "$msg")
+            [ "$(git rev-list --count "$snap")" = 1 ] || { echo "::error::snapshot is not a single orphan commit"; exit 1; }
+            git push -q --force "$url" "$snap:refs/tags/$tag"
+            echo "$what: copied as $tag (${snap:0:8})"
+            copies=$((copies + 1)); [ "$kind" = gate ] || copies_pr=$((copies_pr + 1))
+            post "$sha" "$ctx" pending "running on the GitHub copy" \
+              "https://github.com/dark-collective/vommet/actions/workflows/$wfile?query=branch%3A$tag"
+          done < <(jq -c '.[]' <<<"$items")
+
+          # Waiting Forgejo PR builds of commits GitHub already builds (see 4. above).
+          fj "$API/actions/runs?status=waiting&limit=100" 2>/dev/null \
+            | jq -r '.workflow_runs[]? | select(.workflow_id == "build.yml" and (.event | startswith("pull_request")))
+                     | [.id, .prettyref, .commit_sha] | @tsv' \
+            | while IFS=$'\t' read -r rid pr csha; do
+                [[ $rid =~ ^[0-9]+$ && $csha =~ ^[0-9a-f]{40}$ ]] || continue
+                [ -z "$ONLY" ] || [ "$pr" = "#$ONLY" ] || continue
+                has=$(fj "$API/commits/$csha/status" | jq -r '[.statuses[]? | select(.context == "build / linux (github)")] | length' || echo 0)
+                [ "${has:-0}" -gt 0 ] || continue
+                if fj -o /dev/null -X POST "$API/actions/runs/$rid/cancel"; then
+                  echo "PR ${pr#\#} ${csha:0:8}: cancelled waiting Forgejo build run $rid (built on GitHub)"
+                else echo "::warning::could not cancel Forgejo run $rid"; fi
+              done || true
+
+          # Pruning: scheduled/full runs only.
+          [ -z "$ONLY$GATE" ] || exit 0
+          # Gate branches GATE_DAYS after their last commit.
+          old=""
+          for k in $(jq -r '.[] | select(.kind == "gate") | .key' <<<"$items"); do
+            ts=$(fj "$API/branches/gate%2F$k" 2>/dev/null | jq -r '.commit.timestamp // empty') || continue
+            [ -n "$ts" ] || continue
+            if [ $(( $(date +%s) - $(date -d "$ts" +%s) )) -gt $((GATE_DAYS * 86400)) ]; then old="$old $k"; fi
+          done
+          if [ -n "$old" ]; then
+            echo "deleting gate branch(es) older than $GATE_DAYS days:$old"
+            git push -q "$srcpush" --delete $(for k in $old; do echo "refs/heads/gate/$k"; done) || echo "::warning::could not delete old gate branches"
+          fi
+          # Tags whose PR is closed or whose gate branch is gone.
+          keep=$(jq -r '.[].tag' <<<"$items" | sort -u)
+          for k in $old; do keep=$(grep -vx "ci-gate-$k" <<<"$keep" || true); done
+          gone=$(git ls-remote --tags "$url" 'refs/tags/ci-pr-*' 'refs/tags/ci-gate-*' | cut -f2 | while read -r t; do
+            grep -qx "${t#refs/tags/}" <<<"$keep" || echo "$t"; done)
+          if [ -n "$gone" ]; then
+            echo "deleting $(wc -l <<<"$gone") tag(s) of closed PRs / finished gates"; git push -q "$url" --delete $gone
+          fi
