@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vommet (local data encryption): cloud backups and device-to-device
+     transfers on Android 12 and newer (android:dataExtractionRules). The
+     same exclusions as vommet_backup_rules.xml: the databases and key
+     vault files (files/db), the copies kept by Start over / Reset
+     (files/vommet-kept), the master key's wrapped copy
+     (flutter_secure_storage) and the media cache. A new device signs in
+     again and fetches messages from the server. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="db/" />
+        <exclude domain="file" path="vommet-kept/" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="root" path="cache/media_cache/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="db/" />
+        <exclude domain="file" path="vommet-kept/" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="root" path="cache/media_cache/" />
+    </device-transfer>
+</data-extraction-rules>
