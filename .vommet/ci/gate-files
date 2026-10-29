@@ -1,0 +1,8 @@
+lib/client/components/voip/share_quality.dart
+lib/client/matrix/components/voip_room/matrix_livekit_voip_session.dart
+lib/config/preferences.dart
+lib/ui/organisms/call_view/share_quality_picker.dart
+lib/ui/pages/settings/categories/app/string_preference_options.dart
+lib/ui/pages/settings/categories/app/voip_settings/voip_settings_page.dart
+lib/ui/pages/settings/search/settings_search_entries.dart
+unit_test/share_quality_test.dart
