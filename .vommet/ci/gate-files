@@ -1,0 +1,17 @@
+lib/ui/atoms/lightbox.dart
+lib/ui/atoms/lightbox_gallery.dart
+lib/ui/atoms/lightbox_menu.dart
+lib/ui/atoms/message_attachment.dart
+lib/ui/atoms/reply_quote.dart
+lib/ui/molecules/message_input.dart
+lib/ui/molecules/room_timeline_widget/room_timeline_widget_view.dart
+lib/ui/molecules/timeline_events/events/timeline_event_view_reply.dart
+lib/ui/molecules/timeline_events/media_mosaic.dart
+lib/ui/molecules/timeline_events/timeline_view_entry.dart
+lib/ui/organisms/chat/chat.dart
+lib/ui/organisms/chat/chat_view.dart
+lib/ui/organisms/chat/reply_from_viewer.dart
+lib/ui/organisms/room_members_list/room_attachments.dart
+unit_test/lightbox_reply_test.dart
+unit_test/mosaic_focus_test.dart
+unit_test/reply_quote_test.dart
