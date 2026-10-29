@@ -1,0 +1,18 @@
+# Vommet: vendored copy of just_the_tooltip 0.0.12 (MIT, see LICENSE) with a
+# guard against a detached target and a route covering the tooltip; see
+# VOMMET.md.
+name: just_the_tooltip
+description: A multi directional tooltip used to display any content with
+  inbuilt support for list views
+version: 0.0.12+vommet.1
+homepage: https://github.com/Nolence/just_the_tooltip
+
+environment:
+  sdk: ">=2.17.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
