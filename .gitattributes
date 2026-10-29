@@ -1,0 +1,10 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Vommet: topics append their own rows/sections to the change log; keep both
+# sides instead of conflicting when two touch the same spot.
+VOMMET_CHANGES.md merge=union
+
+# Vommet: topics each add one Experiment entry; keep both sides (see the
+# rules at the top of the file).
+commet/lib/config/experiment_entries.dart merge=union
