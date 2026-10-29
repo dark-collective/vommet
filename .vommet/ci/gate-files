@@ -1,0 +1,2 @@
+lib/client/matrix/components/user_presence/matrix_user_presence.dart
+unit_test/presence_sighting_test.dart
