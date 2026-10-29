@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vommet (more app icons): the Mono V launcher icon before Android 8, which
+     has no adaptive icons: icon_v_grayscale.svg as it is. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="36"
+    android:viewportHeight="36">
+    <path
+        android:fillColor="#111111"
+        android:pathData="M8,0 L28,0 A8,8 0 0 1 36,8 L36,28 A8,8 0 0 1 28,36 L8,36 A8,8 0 0 1 0,28 L0,8 A8,8 0 0 1 8,0Z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M3.00,5.00 L9.01,20.45 L9.01,5.00Z"/>
+    <path android:fillColor="#E0E0E0" android:pathData="M11.50,5.00 L9.00,5.00 L9.00,20.43 L13.50,32.00 L15.01,32.00 L15.01,14.72Z"/>
+    <path android:fillColor="#C2C2C2" android:pathData="M18.00,23.00 L15.00,14.69 L15.00,32.00 L21.01,32.00 L21.01,14.66Z"/>
+    <path android:fillColor="#E0E0E0" android:pathData="M24.50,5.00 L21.00,14.69 L21.00,32.00 L22.50,32.00 L27.01,20.40 L27.01,5.00Z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M27.00,5.00 L27.00,20.43 L33.00,5.00Z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M18.00,4.00 L19.35,6.74 L22.37,7.18 L20.19,9.31 L20.70,12.32 L18.00,10.90 L15.30,12.32 L15.81,9.31 L13.63,7.18 L16.65,6.74Z"/>
+</vector>
