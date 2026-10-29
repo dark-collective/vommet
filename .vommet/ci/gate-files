@@ -1,0 +1,5 @@
+unit_test/choice_cards_layout_test.dart
+unit_test/amoled_segmented_button_test.dart
+unit_test/onboarding_test.dart
+unit_test/amoled_theme_hover_test.dart
+lib/ui/pages/setup/onboarding/choice_cards.dart
