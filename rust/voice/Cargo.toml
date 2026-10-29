@@ -1,0 +1,22 @@
+[package]
+name = "vommet_voice"
+version = "0.1.0"
+edition = "2021"
+description = "Microphone noise suppression (RNNoise, DeepFilterNet3) for Vommet calls"
+license = "AGPL-3.0-only"
+
+[lib]
+# rlib: linked into rust_lib_commet on desktop. cdylib: built on its own for
+# Android, where rust_lib_commet isn't built.
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+log = "0.4.29"
+realfft = "3.5"
+thiserror = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni-sys = "0.4"
+
+[build-dependencies]
+cc = "1.2"
