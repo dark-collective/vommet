@@ -1,0 +1,7 @@
+lib/cache/file_provider.dart
+lib/client/matrix/matrix_mxc_file_provider.dart
+lib/ui/organisms/background_task_view/background_task_view.dart
+lib/utils/background_tasks/background_task_manager.dart
+lib/utils/common_strings.dart
+lib/utils/download_utils.dart
+unit_test/download_file_task_test.dart
