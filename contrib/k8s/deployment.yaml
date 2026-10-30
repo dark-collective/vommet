@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vommet-web
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vommet-web
+          image: ghcr.io/dark-collective/vommet-web
+          # Runtime config (unset = the image's defaults):
+          #   VOMMET_DEFAULT_HOMESERVER      homeserver pre-filled on the login page
+          #   VOMMET_CROSS_ORIGIN_ISOLATION  "off" drops the COOP/COEP headers
+          #   TZ                             timezone of the nginx logs
+          ports:
+            - name: web
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: web
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: web
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
