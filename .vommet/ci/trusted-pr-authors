@@ -1,0 +1,4 @@
+# Fork PR authors whose pull requests build on the GitHub copy without the
+# "ci-approved" label (pr-github.yml). One nether.codes login per line.
+# This grants CI only: no push, merge or label rights.
+nomaddeer

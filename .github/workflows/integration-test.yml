@@ -1,0 +1,73 @@
+on: push
+name: integration-test
+
+env:
+  HOMESERVER: localhost
+  USER1_NAME: alice
+  USER1_PW: AliceInWonderLand
+  USER2_NAME: bob
+  USER2_PW: CanWeFixIt
+  PROJECT_PATH: commet
+
+jobs:
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout  ┏━┓ ︵ /(^.^/)
+        uses: actions/checkout@v2
+        with:
+          submodules: 'true'
+        
+      - name: Setup Flutter  ╰(✿˙ᗜ˙)੭━☆ﾟ.*･｡ﾟ
+        uses: subosito/flutter-action@v2.8.0
+        with:
+          flutter-version: '3.41.9'
+          channel: 'stable'
+
+      - name: Setup Tools  ᕙ|” ◉ ◡ ◉ ”|ᕗ
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev 
+
+      - name: Start Synapse  [◯ ‸ ◯]
+        run: |
+          cd $PROJECT_PATH
+          scripts/integration-server-synapse.sh
+
+      - name: Configure Synapse  ╰[ ⁰﹏⁰ ]╯
+        run: |
+          cd $PROJECT_PATH
+          scripts/integration-prepare-homeserver.sh
+
+      - name: Configure Flutter (∩｀-´)⊃━☆ﾟ.*･｡ﾟ
+        run: flutter config --enable-linux-desktop
+        
+      - name: Code Generation __φ(．．;)
+        run: |
+          cd $PROJECT_PATH
+          dart run scripts/codegen.dart
+          
+      - name: Run Unit Tests  ε=ε=┌( >_<)┘
+        run: |
+          cd $PROJECT_PATH
+          scripts/unit-test.sh
+
+      - name: Run Integration Tests  ─=≡Σ((( つ＞＜)つ
+        run: |
+          cd $PROJECT_PATH
+          export DISPLAY=:99
+          sudo Xvfb -ac :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+          ffmpeg -f x11grab -video_size 1920x1080 -framerate 15 -i :99 -vcodec libx264 -preset ultrafast -qp 0 -nostdin -loglevel quiet -pix_fmt yuv444p video.mkv &
+          scripts/integration-test.sh
+          INTEGRATION_TEST_EXIT_CODE=$?
+          sleep 1
+          kill $(pgrep ffmpeg)
+          exit $INTEGRATION_TEST_EXIT_CODE
+
+      - name: Upload Artifact
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: result.mkv
+          path: commet/video.mkv
