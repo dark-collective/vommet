@@ -1,0 +1,18 @@
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+
+# Cloudflare Pages copy (as _headers) of headers.inc, which the image's nginx
+# sends: keep the two in step. Everything else keeps Pages' default
+# (max-age=0, must-revalidate + ETag), so a new release shows up on the next
+# load. Engine files only change with Flutter. No Cache-Control under /*:
+# Pages joins the headers of every matching rule.
+/canvaskit/*
+  Cache-Control: public, max-age=86400, must-revalidate
+/assets/packages/*
+  Cache-Control: public, max-age=86400, must-revalidate
+/assets/fonts/*
+  Cache-Control: public, max-age=86400, must-revalidate
