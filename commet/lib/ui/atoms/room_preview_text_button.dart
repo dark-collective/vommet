@@ -1,0 +1,93 @@
+import 'package:commet/client/client.dart';
+import 'package:commet/client/room_preview.dart';
+import 'package:commet/main.dart';
+import 'package:commet/utils/common_strings.dart';
+import 'package:commet/utils/text_utils.dart';
+import 'package:commet/ui/atoms/redaction_scope.dart';
+import 'package:flutter/material.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+class RoomPreviewTextButton extends StatefulWidget {
+  const RoomPreviewTextButton(
+    this.room, {
+    this.onTap,
+    super.key,
+  });
+  final RoomPreview room;
+  final Function(RoomPreview roomPreview)? onTap;
+
+  @override
+  State<RoomPreviewTextButton> createState() => _RoomPreviewTextButtonState();
+}
+
+class _RoomPreviewTextButtonState extends State<RoomPreviewTextButton> {
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  static const double height = 37;
+
+  @override
+  Widget build(BuildContext context) {
+    var color = Theme.of(context).colorScheme.secondary;
+
+    bool showRoomIcons = preferences.showRoomAvatars.value;
+    bool useGenericIcons = preferences.usePlaceholderRoomAvatars.value;
+
+    // Vommet issue 475: the name follows redacted mode.
+    String displayName = RedactionScope.of(context)
+        .roomName(widget.room.displayName, widget.room.roomId);
+    final shownName = displayName;
+
+    Color? avatarPlaceholderColor =
+        (showRoomIcons && useGenericIcons && widget.room.avatar == null) ||
+                (!showRoomIcons && useGenericIcons)
+            ? widget.room.color
+            : null;
+
+    String? avatarPlaceholderText =
+        (showRoomIcons && useGenericIcons && widget.room.avatar == null) ||
+                (!showRoomIcons && useGenericIcons)
+            ? shownName
+            : null;
+
+    bool startsWithEmoji = TextUtils.isEmoji(shownName.characters.first);
+
+    if (startsWithEmoji && widget.room.avatar == null) {
+      var emoji = displayName.characters.first;
+      displayName = displayName.characters.skip(1).string.trim();
+      avatarPlaceholderColor = Colors.transparent;
+      avatarPlaceholderText = emoji;
+    }
+    var customBuilder = null;
+
+    IconData? icon = widget.room.type?.icon;
+    // Vommet: headphones like a joined voice room's row (room_text_button),
+    // so the icon doesn't change when you join. RoomType's own icon stays
+    // the speaker that room creation shows.
+    if (widget.room.type == RoomType.voipRoom) icon = Icons.headphones;
+
+    Widget result = SizedBox(
+        height: customBuilder == null ? height : null,
+        child: tiamat.TextButton(
+          displayName,
+          customBuilder: customBuilder,
+          icon: icon,
+          avatar: showRoomIcons && widget.room.avatar != null
+              ? widget.room.avatar
+              : null,
+          avatarRadius: 12,
+          avatarPlaceholderColor: avatarPlaceholderColor,
+          avatarPlaceholderText: avatarPlaceholderText,
+          iconColor: color,
+          textColor: color,
+          softwrap: false,
+          onTap: () => widget.onTap?.call(widget.room),
+          footer: tiamat.Text.labelLow(CommonStrings.promptJoin,
+              color: Theme.of(context).colorScheme.primary),
+        ));
+
+    return result;
+  }
+}
