@@ -1,0 +1,10 @@
+lib/client/matrix/matrix_client.dart
+lib/client/matrix/unverified_sessions.dart
+lib/ui/molecules/timeline_events/events/timeline_event_view_message.dart
+lib/ui/molecules/timeline_events/layouts/timeline_event_layout_bubble.dart
+lib/ui/molecules/timeline_events/layouts/timeline_event_layout_message.dart
+lib/ui/molecules/unverified_sessions_banner.dart
+lib/ui/organisms/chat/chat_view.dart
+lib/ui/pages/settings/categories/account/security/matrix/matrix_security_tab.dart
+lib/ui/pages/settings/categories/account/security/matrix/unverified_sessions_setting.dart
+unit_test/unverified_sessions_test.dart
