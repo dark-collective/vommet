@@ -1,0 +1,6 @@
+# Fetched at configure time by third_party/cmake/sources.cmake
+/third_party/bergamot-translator/
+/third_party/cld2/
+/third_party/.vommet-source.lock
+.dart_tool/
+/build/
