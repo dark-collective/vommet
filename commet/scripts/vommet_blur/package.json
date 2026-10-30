@@ -1,0 +1,13 @@
+{
+  "name": "vommet-blur",
+  "private": true,
+  "description": "Builds commet/web/vommet_blur (camera background blur for the web build). See README.md.",
+  "dependencies": {
+    "@livekit/track-processors": "0.8.2",
+    "@mediapipe/tasks-vision": "0.10.14",
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "build": "esbuild src/entry.js --bundle --format=esm --minify --target=es2020 --alias:livekit-client=./src/shim-livekit-client.js --legal-comments=eof --outfile=../../web/vommet_blur/vommet_blur.js && cp node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm ../../web/vommet_blur/wasm/"
+  }
+}
