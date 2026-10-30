@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vommet-web
+spec:
+  ports:
+    - name: web
+      port: 80
+      targetPort: web
+      protocol: TCP
