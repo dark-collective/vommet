@@ -1,0 +1,167 @@
+import 'package:commet/ui/atoms/clickable_gesture_detector.dart';
+import 'package:commet/ui/atoms/auto_download_overlay.dart';
+import 'package:commet/ui/atoms/redaction_scope.dart';
+
+import 'package:commet/config/preferences.dart';
+import 'package:commet/main.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+class TimelineEventViewSticker extends StatefulWidget {
+  const TimelineEventViewSticker(this.image,
+      {this.previewMedia = false,
+      this.stickerName,
+      this.isGif = false,
+      this.isFavoriteGif = false,
+      this.markAsFavorite,
+      this.onTap,
+      super.key});
+  final bool previewMedia;
+  final String? stickerName;
+  final ImageProvider image;
+  final bool isGif;
+  final bool isFavoriteGif;
+  final Function(bool favorite)? markAsFavorite;
+
+  /// Vommet issue 450: opens the sticker's pack.
+  final VoidCallback? onTap;
+
+  /// Vommet issue 620: the timeline height for a sticker or GIF, given the
+  /// Sticker size setting.
+  static double stickerHeight({required bool isGif, required double setting}) {
+    if (isGif) return Preferences.stickerSizeDefault;
+    return setting.clamp(
+        Preferences.stickerSizeMin, Preferences.stickerSizeMax);
+  }
+
+  @override
+  State<TimelineEventViewSticker> createState() =>
+      _TimelineEventViewStickerState();
+}
+
+class _TimelineEventViewStickerState extends State<TimelineEventViewSticker> {
+  bool showSticker = false;
+  bool hovered = false;
+  bool isFavorite = false;
+
+  static String get promptShowSticker => Intl.message(
+        "Show sticker",
+        name: "promptShowSticker",
+        desc:
+            "Prompt to display a sticker, shown when media previews are disabled",
+      );
+
+  @override
+  void initState() {
+    showSticker = widget.previewMedia;
+    isFavorite = widget.isFavoriteGif;
+    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(covariant TimelineEventViewSticker oldWidget) {
+    setState(() {
+      isFavorite = widget.isFavoriteGif;
+    });
+
+    super.didUpdateWidget(oldWidget);
+  }
+
+  /// Vommet issue 620: stickers follow Settings > Appearance > Sticker size;
+  /// GIFs keep the original size.
+  double height() => TimelineEventViewSticker.stickerHeight(
+      isGif: widget.isGif, setting: preferences.stickerSize.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        height: height(),
+        child: showSticker
+            ? MouseRegion(
+                onEnter: (event) {
+                  setState(() {
+                    hovered = true;
+                  });
+                },
+                onExit: (event) {
+                  setState(() {
+                    hovered = false;
+                  });
+                },
+                child: Stack(
+                  alignment: AlignmentGeometry.topRight,
+                  children: [
+                    ClickableGestureDetector(
+                      onTap: widget.onTap ??
+                          (widget.previewMedia == false
+                              ? () => setState(() {
+                                    showSticker = !showSticker;
+                                  })
+                              : null),
+                      child: RedactedImage(
+                          child: Image(
+                        image: widget.image,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.medium,
+                      )),
+                    ),
+                    // Vommet: tap-to-load when auto-download held it back.
+                    Positioned.fill(
+                        child: AutoDownloadOverlay(image: widget.image)),
+                    if (hovered)
+                      Padding(
+                        padding: const EdgeInsets.all(2.0),
+                        child: SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: tiamat.CircleButton(
+                              icon: isFavorite
+                                  ? Icons.star_rounded
+                                  : Icons.star_outline_rounded,
+                              radius: 20,
+                              color: ColorScheme.of(context)
+                                  .surfaceContainer
+                                  .withAlpha(80),
+                              iconColor: isFavorite
+                                  ? ColorScheme.of(context).primary
+                                  : ColorScheme.of(context).onSurface,
+                              onPressed: () {
+                                widget.markAsFavorite?.call(!isFavorite);
+                              },
+                            )),
+                      )
+                  ],
+                ),
+              )
+            : SizedBox(
+                width: 200,
+                child: Material(
+                  color: Theme.of(context).colorScheme.surfaceBright,
+                  child: InkWell(
+                    mouseCursor: WidgetStateMouseCursor.clickable,
+                    onTap: () => setState(() {
+                      showSticker = !showSticker;
+                    }),
+                    child: Center(
+                        child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          tiamat.Text.label(promptShowSticker),
+                          if (widget.stickerName != null)
+                            tiamat.Text.labelLow(widget.stickerName!)
+                        ],
+                      ),
+                    )),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+}
