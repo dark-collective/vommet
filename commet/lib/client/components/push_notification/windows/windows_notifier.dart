@@ -1,0 +1,385 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:commet/client/sounds/app_sounds.dart';
+import 'package:commet/client/client.dart';
+import 'package:commet/client/components/push_notification/notification_content.dart';
+import 'package:commet/client/components/push_notification/notification_manager.dart';
+import 'package:commet/client/components/push_notification/notifier.dart';
+import 'package:commet/client/components/push_notification/windows/toast_xml.dart';
+import 'package:commet/client/room.dart';
+import 'package:commet/debug/log.dart';
+import 'package:commet/main.dart';
+import 'package:commet/utils/common_strings.dart';
+import 'package:commet/utils/event_bus.dart';
+import 'package:commet/utils/shortcuts_manager.dart';
+import 'package:desktop_notifications/desktop_notifications.dart';
+import 'dart:ui' show Color;
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:win_toast/win_toast.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:path/path.dart' as p;
+
+class WindowsNotifier implements Notifier {
+  @override
+  bool get hasPermission => true;
+
+  @override
+  bool get enabled => true;
+
+  @override
+  bool get needsToken => false;
+
+  static NotificationsClient client = NotificationsClient();
+
+  @override
+  Future<void> init() async {
+    final dir = await getTemporaryDirectory();
+    var file = p.join(dir.path, "im.nether.chat", "commet_app_icon.png");
+
+    ByteData data = await rootBundle
+        .load("assets/images/app_icon/app_icon_transparent_cropped.png");
+
+    var imageFile = File(file);
+    imageFile.createSync(recursive: true);
+    imageFile.writeAsBytes(data.buffer.asInt8List());
+    var uri = Uri.file(file, windows: true);
+
+    await WinToast.instance().initialize(
+      aumId: 'im.nether.chat.windows',
+      displayName: 'Vommet',
+      iconPath: uri.toString(),
+      clsid: '7685C041-9D17-4112-8FC4-386743A3D53E',
+    );
+
+    WinToast.instance().setActivatedCallback(onActivated);
+    WinToast.instance().setDismissedCallback(onDismissed);
+  }
+
+  static void onActivated(ActivatedEvent event) {
+    var text = Uri.decodeQueryComponent(event.argument);
+    var args = Uri.splitQueryString(text);
+
+    print("Got action: $args");
+
+    switch (args['action']) {
+      case 'reply':
+        var clientId = args['client_id'];
+        var roomId = args['room_id'];
+        var eventId = args['event_id'];
+        var message = event.userInput['reply'];
+
+        if (clientId == null) return;
+        if (roomId == null) return;
+        if (eventId == null) return;
+        if (message == null) return;
+
+        var client = clientManager!.getClient(clientId);
+
+        if (client == null) return;
+
+        if (message.trim().isNotEmpty) {
+          client.getRoom(roomId)?.sendMessage(message: message.trim());
+        }
+
+        break;
+      case 'open_room':
+        var roomId = args['room_id'];
+        if (roomId == null) return;
+
+        final clientId = args['client_id'];
+
+        EventBus.doOpenRoom(roomId, clientId: clientId);
+        windowManager.show();
+        break;
+      // Vommet issue 550: an invite opens Home, where the invite list is.
+      case 'open_home':
+        EventBus.openHomeScreen.add(null);
+        windowManager.show();
+        break;
+      case 'accept_call':
+      case 'reject_call':
+        print("Handling call response");
+        final callId = args['call_id'];
+        final clientId = args['client_id'];
+        final session = clientManager?.callManager.currentSessions
+            .where(
+                (e) => e.sessionId == callId && e.client.identifier == clientId)
+            .firstOrNull;
+
+        if (args['action'] == "reject_call") {
+          print("Rejecting call");
+          session?.declineCall();
+        }
+
+        if (args['action'] == "accept_call") {
+          print("Accepting call");
+          session?.acceptCall(withMicrophone: true);
+        }
+
+        break;
+    }
+  }
+
+  static void onDismissed(DismissedEvent event) {
+    print("Notification dismissed");
+    print("event: ${event.toString()} ");
+  }
+
+  @override
+  Future<bool> requestPermission() async {
+    return true;
+  }
+
+  @override
+  Future<void> notify(NotificationContent notification) async {
+    switch (notification) {
+      case MessageNotificationContent _:
+        return displayMessageNotification(notification);
+      case CallNotificationContent _:
+        return displayCallNotificationContent(notification);
+      case RoomInviteNotificationContent _:
+        return displayInviteNotification(notification);
+    }
+  }
+
+  /// Vommet issue 550: a room invite, with the room's picture.
+  Future<void> displayInviteNotification(
+      RoomInviteNotificationContent content) async {
+    var avatar = await ShortcutsManager.getCachedAvatarImage(
+        placeholderColor: content.roomColor ?? const Color(0xFF8E6FD8),
+        placeholderText:
+            content.isDirect ? content.inviterName : content.roomName,
+        identifier: content.roomId,
+        format: ShortcutIconFormat.png,
+        shouldZoomOut: false,
+        imageProvider: content.isDirect ? null : content.roomImage);
+
+    final avatarFilePath = avatar == null ? "" : avatar.toFilePath();
+
+    const x = ToastXml.text;
+    const defaultAction = "action=open_home";
+
+    var attribution = content.accountLabel == null
+        ? ""
+        : '<text placement="attribution">${x(content.accountLabel)}</text>';
+
+    var xml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<toast launch="$defaultAction">
+   <visual>
+      <binding template="ToastGeneric">
+         <text>${x(content.title)}</text>
+         <text>${x(content.content)}</text>
+         $attribution
+         <image placement='appLogoOverride' src='${x(avatarFilePath)}' hint-crop='circle'/>
+      </binding>
+   </visual>
+   <audio silent='true'/>
+</toast>
+  """;
+
+    final sound = AppSounds.media(SoundEvent.message);
+    if (sound != null) {
+      NotificationManager.getSoundPlayer().open(sound);
+    }
+
+    WinToast.instance().showCustomToast(xml: xml);
+  }
+
+  Future<void> displayCallNotificationContent(
+      CallNotificationContent content) async {
+    String? avatarFilePath;
+
+    var client = clientManager?.getClient(content.clientId);
+    var room = client?.getRoom(content.roomId);
+
+    if (room == null) {
+      return;
+    }
+
+    var avatar = await ShortcutsManager.getCachedAvatarImage(
+        placeholderColor: room.getColorOfUser(content.senderId),
+        placeholderText: content.roomName,
+        identifier: content.senderId,
+        imageId: content.senderImageId,
+        format: ShortcutIconFormat.png,
+        shouldZoomOut: false,
+        imageProvider: content.senderImage);
+
+    avatarFilePath = avatar == null ? "" : avatar.toFilePath();
+
+    // ignore: prefer_function_declarations_over_variables
+    var f = (String string) => Uri.encodeComponent(string);
+    // Vommet: names and message text are escaped for the toast XML.
+    const x = ToastXml.text;
+
+    var title = x(content.roomName);
+
+    var defaultAction =
+        "action=open_room&amp;client_id=${f(content.clientId)}&amp;room_id=${f(content.roomId)}&amp;call_id=${f(content.callId)}";
+
+    var header = '''<header
+        id="${f(content.roomId)}"
+        title="${x(content.roomName)}"
+        arguments="$defaultAction"/>''';
+
+    if (content.isDirectMessage) {
+      header = "";
+    }
+
+    var attribution = content.accountLabel == null
+        ? ""
+        : '<text placement="attribution">${x(content.accountLabel)}</text>';
+
+    var xml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<toast launch="$defaultAction">
+   $header
+   <visual>
+      <binding template="ToastGeneric">
+         <text>$title</text>
+         <text>${x(content.content)}</text>
+         $attribution
+         <image placement='appLogoOverride' src='${x(avatarFilePath)}' hint-crop='circle'/>
+      </binding>
+   </visual>
+   <audio silent='true'/>
+   <actions>
+      <action content="${x(CommonStrings.promptAccept)}" activationType="background" arguments="action=accept_call&amp;client_id=${f(content.clientId)}&amp;room_id=${f(content.roomId)}&amp;call_id=${f(content.callId)}" />
+      <action content="${x(CommonStrings.promptReject)}" activationType="background" arguments="action=reject_call&amp;client_id=${f(content.clientId)}&amp;room_id=${f(content.roomId)}&amp;call_id=${f(content.callId)}" />
+   </actions>
+</toast>
+  """;
+
+    WinToast.instance().showCustomToast(xml: xml);
+  }
+
+  Future<void> displayMessageNotification(
+      MessageNotificationContent content) async {
+    String? avatarFilePath;
+
+    var client = clientManager?.getClient(content.clientId);
+    var room = client?.getRoom(content.roomId);
+
+    if (room == null) {
+      return;
+    }
+
+    var avatar = await ShortcutsManager.getCachedAvatarImage(
+        placeholderColor: room.getColorOfUser(content.senderId),
+        placeholderText: content.senderName,
+        identifier: content.senderId,
+        imageId: content.senderImageId,
+        format: ShortcutIconFormat.png,
+        shouldZoomOut: false,
+        imageProvider: content.senderImage);
+
+    avatarFilePath = avatar == null ? "" : avatar.toFilePath();
+
+    // ignore: prefer_function_declarations_over_variables
+    var f = (String string) => Uri.encodeComponent(string);
+    // Vommet: names and message text are escaped for the toast XML.
+    const x = ToastXml.text;
+
+    var title = x(content.senderName);
+
+    var defaultAction =
+        "action=open_room&amp;client_id=${f(content.clientId)}&amp;room_id=${f(content.roomId)}&amp;event_id=${f(content.eventId)}";
+
+    var header = '''<header
+        id="${f(content.roomId)}"
+        title="${x(content.roomName)}"
+        arguments="$defaultAction"/>''';
+
+    if (content.isDirectMessage) {
+      header = "";
+    }
+
+    var attribution = content.accountLabel == null
+        ? ""
+        : '<text placement="attribution">${x(content.accountLabel)}</text>';
+
+    var xml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<toast launch="$defaultAction">
+   $header
+   <visual>
+      <binding template="ToastGeneric">
+         <text>$title</text>
+         <text>${x(content.content)}</text>
+         $attribution
+         <image placement='appLogoOverride' src='${x(avatarFilePath)}' hint-crop='circle'/>
+      </binding>
+   </visual>
+   <audio silent='true'/>
+   <actions>
+      <input id="reply" type="text" placeHolderContent="Send a reply..." />
+      <action content="Reply" activationType="background" arguments="action=reply&amp;client_id=${f(content.clientId)}&amp;room_id=${f(content.roomId)}&amp;event_id=${f(content.eventId)}" />
+   </actions>
+</toast>
+  """;
+
+    // Vommet: the chosen sound (AppSounds), when the push rule plays one
+    // (Vommet issue 719).
+    final sound = AppSounds.media(
+        content.playsMentionSound ? SoundEvent.mention : SoundEvent.message);
+    if (sound != null && content.playsSound) {
+      NotificationManager.getSoundPlayer().open(sound);
+    }
+
+    WinToast.instance().showCustomToast(
+        xml: xml,
+        tag: "${++toastId}",
+        group: roomToastGroup(content.clientId, content.roomId));
+    NotificationManager.noteRoomNotified(content.clientId, content.roomId);
+  }
+
+  @override
+  Map<String, dynamic>? extraRegistrationData() {
+    return null;
+  }
+
+  @override
+  Future<String?> getToken() async {
+    return null;
+  }
+
+  @override
+  Future<void> clearNotifications(Room room) async {
+    try {
+      // An empty tag removes the whole group from the Action Center.
+      await WinToast.instance().dismiss(
+          tag: "",
+          group: roomToastGroup(room.client.identifier, room.identifier));
+    } catch (e) {
+      Log.d("Could not remove the room's toasts: $e");
+    }
+  }
+
+  static int toastId = 0;
+
+  /// Vommet issue 508: a room's message toasts share a group, so reading the
+  /// chat can remove them. Windows allows at most 64 characters, hence a
+  /// hash (FNV-1a) instead of the ids themselves.
+  static String roomToastGroup(String clientId, String roomId) {
+    var hash = 0x811c9dc5;
+    for (final byte in utf8.encode("$clientId|$roomId")) {
+      hash = ((hash ^ byte) * 0x01000193) & 0xffffffff;
+    }
+    return "room-${hash.toRadixString(16).padLeft(8, '0')}";
+  }
+
+  @override
+  Future<void> disableBadges() {
+    // TODO: implement disableBadges
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> enableBadges() {
+    // TODO: implement enableBadges
+    throw UnimplementedError();
+  }
+}

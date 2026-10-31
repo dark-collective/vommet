@@ -1,0 +1,1 @@
+clearurls: https://github.com/ClearURLs/Rules @ 9317c06eff_large_wordlist: https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt (Electronic Frontier Foundation, CC BY 3.0 US, https://creativecommons.org/licenses/by/3.0/us/; dice numbers removed) sha256 of the original addd3553

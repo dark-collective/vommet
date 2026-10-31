@@ -1,0 +1,93 @@
+// Vommet (issues 602, 611): Settings › Privacy › Search › "Index encrypted
+// chats". Kept beside the feature, not in preferences.dart.
+import 'package:commet/config/build_config.dart';
+import 'package:commet/config/preferences/string_preference.dart';
+import 'package:intl/intl.dart';
+
+/// When the background index of encrypted chats is built. Off still caches
+/// what a search scans.
+enum EncryptedIndexMode {
+  off("off"),
+  wifiOnly("wifi"),
+  always("always");
+
+  const EncryptedIndexMode(this.key);
+  final String key;
+
+  static EncryptedIndexMode fromKey(String key) =>
+      values.firstWhere((m) => m.key == key, orElse: () => defaultMode);
+
+  /// Always on desktop, Wi-Fi only on phones.
+  static EncryptedIndexMode get defaultMode => BuildConfig.MOBILE
+      ? EncryptedIndexMode.wifiOnly
+      : EncryptedIndexMode.always;
+}
+
+final StringPreference encryptedIndexModePreference = StringPreference(
+    "vommet_index_encrypted_chats",
+    defaultValue: EncryptedIndexMode.defaultMode.key);
+
+EncryptedIndexMode get encryptedIndexMode =>
+    EncryptedIndexMode.fromKey(encryptedIndexModePreference.value);
+
+String get searchSettingsHeader => Intl.message("Search",
+    name: "searchSettingsHeader",
+    desc: "Header of the search section in Settings › Privacy");
+
+String get indexEncryptedChatsTitle => Intl.message("Index encrypted chats",
+    name: "indexEncryptedChatsTitle",
+    desc: "Setting: build a search index of encrypted chats on this device");
+
+String get indexEncryptedChatsDescription => Intl.message(
+    "Builds a search index on this device so search and Shared counts are instant. Stored with your message cache.",
+    name: "indexEncryptedChatsDescription",
+    desc: "Describes the 'Index encrypted chats' setting");
+
+String get indexModeOff => Intl.message("Off",
+    name: "indexModeOff",
+    desc: "Index encrypted chats: never in the background");
+
+String get indexModeWifiOnly => Intl.message("Wi-Fi only",
+    name: "indexModeWifiOnly",
+    desc: "Index encrypted chats: only while on Wi-Fi");
+
+String get indexModeAlways => Intl.message("Always",
+    name: "indexModeAlways", desc: "Index encrypted chats: on any connection");
+
+String indexProgress(int indexed, int total) =>
+    Intl.message("Indexed $indexed of $total encrypted chats",
+        args: [indexed, total],
+        name: "indexProgress",
+        desc: "Progress of the encrypted search index");
+
+String get indexStateRunning => Intl.message("Running in the background",
+    name: "indexStateRunning",
+    desc: "The encrypted search index is being built");
+
+String get indexStateWaitingForWifi => Intl.message("Waiting for Wi-Fi",
+    name: "indexStateWaitingForWifi",
+    desc: "The encrypted search index waits for a Wi-Fi connection");
+
+String get indexStateOff => Intl.message(
+    "Off. Search still looks through older messages when you search, and keeps what it found.",
+    name: "indexStateOff",
+    desc: "The encrypted search index is switched off");
+
+String get indexStateDone => Intl.message("Up to date",
+    name: "indexStateDone", desc: "Every encrypted chat is indexed");
+
+String get indexStateUnavailable =>
+    Intl.message("Not available in this version of Vommet",
+        name: "indexStateUnavailable",
+        desc: "The encrypted search index can't run here (the web version)");
+
+String get indexClear => Intl.message("Clear index",
+    name: "indexClear", desc: "Button that deletes the encrypted search index");
+
+String get indexClearPrompt => Intl.message(
+    "Delete the search index of your encrypted chats from this device? It is built again in the background unless indexing is off.",
+    name: "indexClearPrompt",
+    desc: "Body of the clear search index confirmation");
+
+String get indexCleared => Intl.message("Search index cleared",
+    name: "indexCleared", desc: "Snackbar after the search index was cleared");
