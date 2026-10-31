@@ -1,0 +1,480 @@
+# Vommet: the nightly integration suites on testing, on the GitHub copy
+# (github.com/dark-collective/vommet). Replaces the Forgejo runs nightly.yml
+# used to dispatch on testing (integration.yml full suite + secure setup,
+# integration-synapse.yml; ~9 h a week on the single-slot Forgejo runner,
+# 2026-10-18).
+#
+# Forgejo's nightly.yml (light runner, 06:55 UTC) pushes ci/windows-nightly =
+# testing + this file + .vommet/ci/source-sha (testing's sha) +
+# .vommet/ci/nightly-targets (what to run tonight: "full" unless testing
+# already passed the full suite, "secure-setup", "synapse", "widgets");
+# github-copy.yml
+# copies it here. nightly.yml then waits for this run and posts each job's
+# result on testing as a Forgejo status ("... (github nightly)").
+#
+# Security model: as vommet-integration.yml. Self-contained (throwaway
+# Tuwunel/Synapse on 127.0.0.1, own CA, made-up users; never connects to our
+# hosts), no secrets, contents: read, actions pinned by SHA, image by digest,
+# Tuwunel by version + sha256, Synapse by PyPI version. Push-only trigger on
+# our own branch. The widgets job is the exception to "never connects to our
+# hosts": it opens the public widget pages (nether.channel, vommet.app,
+# web.drawpile.net and the catalog's other widgets) as any visitor would,
+# still without secrets, and builds Watch Together from the public
+# nether/widgets repo (pinned commit) to sign in to it for real on 127.0.0.1,
+# with made-up accounts on a throwaway Synapse.
+name: vommet-nightly
+
+on:
+  push:
+    branches: ['ci/windows-nightly']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-nightly
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  TUWUNEL_VERSION: v1.9.3
+  TUWUNEL_SHA256: 98c3b0be352cc03b2c6b21d6f2ed60fedc926f4aab61ce37f0b89eed97d5b756
+  # Pinned like Tuwunel; 1.162 still supports the image's Python 3.10.
+  SYNAPSE_VERSION: 1.162.0
+  # nether/widgets commit whose Watch Together the widgets job signs in to
+  # (needs matrix.openid_server_urls).
+  WIDGETS_REPO: https://nether.codes/nether/widgets.git
+  WIDGETS_SHA: f77545d07171536662b02204d19a6957417ca562
+
+jobs:
+  plan:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-22.04
+    outputs:
+      targets: ${{ steps.plan.outputs.targets }}
+      synapse: ${{ steps.plan.outputs.synapse }}
+      widgets: ${{ steps.plan.outputs.widgets }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: plan
+        run: |
+          want=$(cat .vommet/ci/nightly-targets 2>/dev/null || echo "full secure-setup synapse")
+          t=()
+          for w in $want; do case $w in
+            full) t+=('{"name":"full","file":"integration_test/vommet_runner.dart"}') ;;
+            secure-setup) t+=('{"name":"secure-setup","file":"integration_test/secure_setup_runner.dart"}') ;;
+          esac; done
+          echo "targets=[$(IFS=,; echo "${t[*]}")]" >> "$GITHUB_OUTPUT"
+          [[ " $want " == *" synapse "* ]] && echo "synapse=true" >> "$GITHUB_OUTPUT" || echo "synapse=false" >> "$GITHUB_OUTPUT"
+          [[ " $want " == *" widgets "* ]] && echo "widgets=true" >> "$GITHUB_OUTPUT" || echo "widgets=false" >> "$GITHUB_OUTPUT"
+          echo "tonight: $want (testing $(cat .vommet/ci/source-sha 2>/dev/null))"
+
+  integration:
+    needs: plan
+    if: needs.plan.outputs.targets != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.plan.outputs.targets) }}
+    name: integration (${{ matrix.target.name }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    # Root inside the container: homeserver.sh binds port 443 and installs its
+    # throwaway CA, as in the Forgejo job.
+    container:
+      image: ghcr.io/catthehacker/ubuntu@sha256:f5f5c29208c4fd541704fe7b8df33d3bf620ce4ac46f36853b7abeb0159705c4
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install native build and test dependencies
+        run: |
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Each try fetches the lists and the packages under a watchdog, and a retry first moves
+          # to another mirror: the runner's default Ubuntu mirror stalled all 3 tries twice on
+          # 10-22/23 (vommet-native). The install itself then runs from the local cache.
+          # The watchdog runs INSIDE sudo (sudo timeout, not timeout sudo): signals from timeout never
+          # reached apt-get through sudo, so a stalled try ran 45-50 min (10-23, 10-26, 10-27 timeouts).
+          su=; [ "$(id -u)" = 0 ] || su=sudo
+          mirror() {
+            local m re
+            . /etc/os-release
+            case $ID in
+              ubuntu) [ "$(dpkg --print-architecture)" = amd64 ] || return 0
+                      re='https?://(?:(?:azure\.)?archive\.ubuntu\.com|mirrors\.edge\.kernel\.org)/ubuntu/?'
+                      m=http://archive.ubuntu.com/ubuntu/; [ $1 = 2 ] && m=http://mirrors.edge.kernel.org/ubuntu/;;
+              debian) re='https?://(?:deb\.debian\.org|ftp\.us\.debian\.org|mirrors\.edge\.kernel\.org)/debian/?'
+                      m=http://mirrors.edge.kernel.org/debian/; [ $1 = 2 ] && m=http://ftp.us.debian.org/debian/;;
+              *) return 0;;
+            esac
+            echo "apt: switching to $m"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              { printf '%s\tpriority:1\n' "$m"; awk -F'priority:' 'NF==2{print $1 "priority:" $2+1; next} {print}' /etc/apt/apt-mirrors.txt; } > mirrors.new
+              $su cp mirrors.new /etc/apt/apt-mirrors.txt; rm mirrors.new
+            fi
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+              [ -f "$f" ] && $su perl -pi -e 's#'"$re"'(?=\s|$)#'"$m"'#g' "$f"
+            done
+            return 0
+          }
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="\
+            ca-certificates curl xz-utils git unzip zip build-essential clang lld llvm cmake ninja-build pkg-config \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev libsecret-1-dev libjsoncpp-dev libpulse-dev \
+            libpipewire-0.3-dev xvfb jq openssl zstd dbus dbus-x11 gnome-keyring dunst"
+          for i in 1 2 3; do
+            [ $i = 1 ] || mirror $i
+            $su timeout -k 20 150 apt-get $o update -qq &&
+              $su timeout -k 20 360 apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null && break
+            [ $i = 3 ] && { echo "::error title=apt::package download failed or stalled 3 times"; exit 1; }
+            $su pkill -KILL -f '^/usr/lib/apt/methods/' 2>/dev/null || true
+            echo "::warning title=apt::try $i failed or stalled"; sleep 10
+          done
+          $su apt-get install -y -qq --no-install-recommends $p >/dev/null
+          git config --global --add safe.directory '*'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: it-cargo-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock') }}
+          restore-keys: it-cargo-
+
+      - name: Install Rust and Tuwunel
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          tw="$HOME/tuwunel-$TUWUNEL_VERSION"
+          curl -fsSL -o tw.zst "https://github.com/matrix-construct/tuwunel/releases/download/$TUWUNEL_VERSION/$TUWUNEL_VERSION-release-all-x86_64-v1-linux-gnu-tuwunel.zst"
+          echo "$TUWUNEL_SHA256  tw.zst" | sha256sum -c -
+          zstd -q -d tw.zst -o "$tw" && rm tw.zst && chmod +x "$tw"
+          echo "TUWUNEL=$tw" >> "$GITHUB_ENV"
+
+      - name: Configure Flutter and generate code
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Integration tests
+        env:
+          TARGET: ${{ matrix.target.file }}
+          NAME: ${{ matrix.target.name }}
+        run: |
+          set -o pipefail
+          .vommet/it/run.sh "$TARGET" || {
+            rc=$?
+            # Failing tests ("[E]" in the expanded reporter) as an annotation:
+            # readable without a GitHub login, unlike the raw log.
+            msg=$(grep -E '\[E\]$' it-out/flutter-test.log 2>/dev/null | sed -E 's/^[0-9:+ -]+//' | sort -u | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 it-out/flutter-test.log 2>/dev/null)
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=integration ($NAME) failed::$msg"
+            exit $rc; }
+          # The pass count, public like the failure annotation, to compare runs.
+          echo "::notice title=integration ($NAME) passed::$(grep -E '^[0-9:]+ \+[0-9]+.*All tests passed' it-out/flutter-test.log | tail -1)"
+
+      - name: Upload screen recording and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-${{ matrix.target.name }}-${{ github.run_number }}
+          path: it-out/
+          retention-days: 7
+
+  # integration-synapse.yml's "utd" job: the "Retry Decrypt" / history-gap
+  # variants of utd_vanish_test.dart and every unread-dot variant against
+  # Synapse (in the job container, from PyPI) with a second Tuwunel.
+  synapse:
+    needs: plan
+    if: needs.plan.outputs.synapse == 'true'
+    name: integration-synapse (utd)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    container:
+      image: ghcr.io/catthehacker/ubuntu@sha256:f5f5c29208c4fd541704fe7b8df33d3bf620ce4ac46f36853b7abeb0159705c4
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install native build and test dependencies
+        run: |
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Each try fetches the lists and the packages under a watchdog, and a retry first moves
+          # to another mirror: the runner's default Ubuntu mirror stalled all 3 tries twice on
+          # 10-22/23 (vommet-native). The install itself then runs from the local cache.
+          # The watchdog runs INSIDE sudo (sudo timeout, not timeout sudo): signals from timeout never
+          # reached apt-get through sudo, so a stalled try ran 45-50 min (10-23, 10-26, 10-27 timeouts).
+          su=; [ "$(id -u)" = 0 ] || su=sudo
+          mirror() {
+            local m re
+            . /etc/os-release
+            case $ID in
+              ubuntu) [ "$(dpkg --print-architecture)" = amd64 ] || return 0
+                      re='https?://(?:(?:azure\.)?archive\.ubuntu\.com|mirrors\.edge\.kernel\.org)/ubuntu/?'
+                      m=http://archive.ubuntu.com/ubuntu/; [ $1 = 2 ] && m=http://mirrors.edge.kernel.org/ubuntu/;;
+              debian) re='https?://(?:deb\.debian\.org|ftp\.us\.debian\.org|mirrors\.edge\.kernel\.org)/debian/?'
+                      m=http://mirrors.edge.kernel.org/debian/; [ $1 = 2 ] && m=http://ftp.us.debian.org/debian/;;
+              *) return 0;;
+            esac
+            echo "apt: switching to $m"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              { printf '%s\tpriority:1\n' "$m"; awk -F'priority:' 'NF==2{print $1 "priority:" $2+1; next} {print}' /etc/apt/apt-mirrors.txt; } > mirrors.new
+              $su cp mirrors.new /etc/apt/apt-mirrors.txt; rm mirrors.new
+            fi
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+              [ -f "$f" ] && $su perl -pi -e 's#'"$re"'(?=\s|$)#'"$m"'#g' "$f"
+            done
+            return 0
+          }
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="\
+            ca-certificates curl xz-utils git unzip zip build-essential clang lld llvm cmake ninja-build pkg-config \
+            libgtk-3-dev libmpv-dev mpv ffmpeg libmimalloc-dev libwebkit2gtk-4.1-dev \
+            libasound2-dev libkeybinder-3.0-dev libglu1-mesa libstdc++-12-dev libsecret-1-dev libjsoncpp-dev libpulse-dev \
+            libpipewire-0.3-dev xvfb jq openssl zstd dbus dbus-x11 gnome-keyring dunst python3 python3-venv"
+          for i in 1 2 3; do
+            [ $i = 1 ] || mirror $i
+            $su timeout -k 20 150 apt-get $o update -qq &&
+              $su timeout -k 20 360 apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null && break
+            [ $i = 3 ] && { echo "::error title=apt::package download failed or stalled 3 times"; exit 1; }
+            $su pkill -KILL -f '^/usr/lib/apt/methods/' 2>/dev/null || true
+            echo "::warning title=apt::try $i failed or stalled"; sleep 10
+          done
+          $su apt-get install -y -qq --no-install-recommends $p >/dev/null
+          git config --global --add safe.directory '*'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo and the Synapse venv
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/synapse-venv-${{ env.SYNAPSE_VERSION }}
+          key: it-synapse-${{ env.SYNAPSE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock') }}
+          restore-keys: it-synapse-${{ env.SYNAPSE_VERSION }}-
+
+      - name: Install Rust and Tuwunel
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          tw="$HOME/tuwunel-$TUWUNEL_VERSION"
+          curl -fsSL -o tw.zst "https://github.com/matrix-construct/tuwunel/releases/download/$TUWUNEL_VERSION/$TUWUNEL_VERSION-release-all-x86_64-v1-linux-gnu-tuwunel.zst"
+          echo "$TUWUNEL_SHA256  tw.zst" | sha256sum -c -
+          zstd -q -d tw.zst -o "$tw" && rm tw.zst && chmod +x "$tw"
+          echo "TUWUNEL=$tw" >> "$GITHUB_ENV"
+
+      - name: Configure Flutter and generate code
+        run: |
+          flutter config --no-analytics --enable-linux-desktop
+          cd $PROJECT_PATH
+          flutter pub get
+          dart run scripts/codegen.dart
+
+      - name: Annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/it_report" <<'SH'
+          #!/usr/bin/env bash
+          # it_report <title> <log> <exit code>: failing tests or the pass count as an annotation.
+          title=$1 log=$2 rc=$3
+          if [ "$rc" != 0 ]; then
+            msg=$(grep -E '\[E\]$' "$log" 2>/dev/null | sed -E 's/^[0-9:+ -]+//' | sort -u | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log" 2>/dev/null)
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=$title failed::$msg"
+          else
+            echo "::notice title=$title passed::$(grep -E '^[0-9:]+ \+[0-9]+.*All tests passed' "$log" | tail -1)"
+          fi
+          exit "$rc"
+          SH
+          chmod +x "$HOME/bin/it_report"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # A on a second Tuwunel (127.0.0.1:8449), B and the app on Synapse.
+      - name: UTD variants against Synapse
+        env:
+          IT_HS: synapse
+          IT_FEDERATION: '1'
+          UTD_ONLY: 'federated:'
+          UTD_REPEAT: '1'
+        run: |
+          .vommet/it/run.sh integration_test/utd_vanish_runner.dart; rc=$?
+          it_report "synapse utd" it-out/flutter-test.log $rc
+
+      # Every unread-dot variant, the app and the sender on Synapse.
+      - name: Unread dot variants against Synapse
+        if: always()
+        env:
+          IT_HS: synapse
+          OUT: ${{ github.workspace }}/it-out/unread-dot
+          # Its own Synapse: the UTD step's database already has alice and bob.
+          WORK: /tmp/vommet-it-unread
+        run: |
+          .vommet/it/run.sh integration_test/unread_dot_runner.dart; rc=$?
+          it_report "synapse unread dot" "$OUT/flutter-test.log" $rc
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-synapse-${{ github.run_number }}
+          path: it-out/
+          retention-days: 7
+
+  # Every catalog widget (+ Watch Together) in the real desktop widget window
+  # (rust/rust/src/widget_runner.rs, WebKitGTK) under Xvfb, with a stand-in
+  # app speaking the widget API on its stdin/stdout; "direct" widgets
+  # (Drawpile) in headless Chromium. See .vommet/widgets/run.sh. Failures
+  # name the widget and the step it stopped before.
+  widgets:
+    needs: plan
+    if: needs.plan.outputs.widgets == 'true'
+    name: widgets (linux)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install the widget window's build and run dependencies
+        run: |
+          # A stalled mirror fails fast and retries instead of eating the job's time limit
+          # (2026-10-22: a silent 42-min apt hang ran vommet-linux into its 60-min limit).
+          # Each try fetches the lists and the packages under a watchdog, and a retry first moves
+          # to another mirror: the runner's default Ubuntu mirror stalled all 3 tries twice on
+          # 10-22/23 (vommet-native). The install itself then runs from the local cache.
+          # The watchdog runs INSIDE sudo (sudo timeout, not timeout sudo): signals from timeout never
+          # reached apt-get through sudo, so a stalled try ran 45-50 min (10-23, 10-26, 10-27 timeouts).
+          su=; [ "$(id -u)" = 0 ] || su=sudo
+          mirror() {
+            local m re
+            . /etc/os-release
+            case $ID in
+              ubuntu) [ "$(dpkg --print-architecture)" = amd64 ] || return 0
+                      re='https?://(?:(?:azure\.)?archive\.ubuntu\.com|mirrors\.edge\.kernel\.org)/ubuntu/?'
+                      m=http://archive.ubuntu.com/ubuntu/; [ $1 = 2 ] && m=http://mirrors.edge.kernel.org/ubuntu/;;
+              debian) re='https?://(?:deb\.debian\.org|ftp\.us\.debian\.org|mirrors\.edge\.kernel\.org)/debian/?'
+                      m=http://mirrors.edge.kernel.org/debian/; [ $1 = 2 ] && m=http://ftp.us.debian.org/debian/;;
+              *) return 0;;
+            esac
+            echo "apt: switching to $m"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              { printf '%s\tpriority:1\n' "$m"; awk -F'priority:' 'NF==2{print $1 "priority:" $2+1; next} {print}' /etc/apt/apt-mirrors.txt; } > mirrors.new
+              $su cp mirrors.new /etc/apt/apt-mirrors.txt; rm mirrors.new
+            fi
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+              [ -f "$f" ] && $su perl -pi -e 's#'"$re"'(?=\s|$)#'"$m"'#g' "$f"
+            done
+            return 0
+          }
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          p="\
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            xvfb x11-utils ffmpeg dbus dbus-x11 python3-venv"
+          for i in 1 2 3; do
+            [ $i = 1 ] || mirror $i
+            $su timeout -k 20 150 apt-get $o update -qq &&
+              $su timeout -k 20 360 apt-get $o install -y -qq --download-only --no-install-recommends $p >/dev/null && break
+            [ $i = 3 ] && { echo "::error title=apt::package download failed or stalled 3 times"; exit 1; }
+            $su pkill -KILL -f '^/usr/lib/apt/methods/' 2>/dev/null || true
+            echo "::warning title=apt::try $i failed or stalled"; sleep 10
+          done
+          $su apt-get install -y -qq --no-install-recommends $p >/dev/null
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .vommet/widgets/runner/target
+            ~/synapse-venv-${{ env.SYNAPSE_VERSION }}
+          key: widgets-cargo-${{ env.SYNAPSE_VERSION }}-${{ hashFiles('Cargo.lock', '.vommet/widgets/runner/Cargo.toml', 'rust/rust/src/widget_runner*') }}
+          restore-keys: widgets-cargo-${{ env.SYNAPSE_VERSION }}-
+
+      # Watch Together's source, for a real sign-in against a local Synapse
+      # (.vommet/widgets/wt-local.sh). Go comes with the image (go.mod's
+      # toolchain line fetches a newer one if needed).
+      - name: Fetch Watch Together
+        run: |
+          d="$RUNNER_TEMP/widgets"
+          git init -q "$d" && cd "$d"
+          for i in 1 2 3; do git fetch -q --depth 1 "$WIDGETS_REPO" "$WIDGETS_SHA" && break; sleep $((i * 10)); done
+          git checkout -q FETCH_HEAD
+          [ -f watch-together/go.mod ] && echo "WT_SRC=$d/watch-together" >> "$GITHUB_ENV"
+          go version
+
+      # Chromium for "direct" widgets, outside the repo (no package.json there).
+      - name: Install Playwright Chromium
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund -q playwright@1.56.1 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/pw/node_modules/playwright/index.mjs" >> "$GITHUB_ENV"
+
+      - name: Widgets
+        env:
+          OUT: ${{ github.workspace }}/widgets-out
+        run: |
+          if [ ! -x .vommet/widgets/run.sh ]; then
+            echo "::notice title=widgets::no .vommet/widgets/run.sh on this commit; skipped"; exit 0
+          fi
+          .vommet/widgets/run.sh; rc=$?
+          if [ "$rc" != 0 ]; then
+            msg=$(cat "$OUT/failures" 2>/dev/null | head -n 20)
+            [ -n "$msg" ] || msg="see the job log"
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=widgets failed::$msg"
+          fi
+          # Third-party widgets that broke: worth a look, not a failure.
+          grep -E '^warn ' "$OUT/widgets.log" 2>/dev/null | sed 's/^warn /::warning title=widget (not ours)::/' || true
+          exit $rc
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-widgets-${{ github.run_number }}
+          path: widgets-out/
+          retention-days: 7
