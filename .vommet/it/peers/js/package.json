@@ -1,0 +1,9 @@
+{
+  "name": "vommet-it-js-peer",
+  "private": true,
+  "type": "module",
+  "description": "Vommet integration tests: a matrix-js-sdk (Rust crypto) device, the stack of Element Web/Desktop, for cross-signing interop",
+  "dependencies": {
+    "matrix-js-sdk": "44.0.0"
+  }
+}
