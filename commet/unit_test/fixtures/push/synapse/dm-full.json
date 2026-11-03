@@ -1,0 +1,32 @@
+{
+  "notification": {
+    "content": {
+      "body": "a DM",
+      "msgtype": "m.text"
+    },
+    "counts": {
+      "unread": 6
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "pushkey": "pushkey-full",
+        "pushkey_ts": 1700000000,
+        "tweaks": {
+          "highlight": false,
+          "sound": "default"
+        }
+      }
+    ],
+    "event_id": "$event-dm",
+    "id": "$event-dm",
+    "prio": "high",
+    "room_id": "!room-dm:example.org",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "type": "m.room.message"
+  }
+}
