@@ -1,0 +1,14 @@
+[package]
+name = "vommet_blur"
+version = "0.1.0"
+edition = "2021"
+description = "Camera background blur (person segmentation in plain Rust) for Vommet calls on Linux and Windows"
+license = "AGPL-3.0-only"
+
+[lib]
+# Linked into rust_lib_commet, which exports the C functions.
+crate-type = ["rlib"]
+
+[dependencies]
+log = "0.4.29"
+thiserror = "2"
