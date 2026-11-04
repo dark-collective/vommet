@@ -1,0 +1,356 @@
+import 'dart:async';
+import 'dart:math';
+
+import 'package:commet/cache/file_provider.dart';
+import 'package:commet/client/matrix/matrix_mxc_file_provider.dart';
+import 'package:commet/debug/log.dart';
+import 'package:commet/telemetry/media_load_telemetry.dart';
+import 'package:commet/telemetry/voice_message_telemetry.dart';
+import 'package:commet/utils/private_files/private_media_files.dart';
+import 'package:commet/utils/voice_message.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+/// A received voice message: play/pause, waveform with progress (tap or drag
+/// to seek), elapsed/total time and a playback-speed toggle.
+class VoiceMessagePlayer extends StatefulWidget {
+  const VoiceMessagePlayer({
+    required this.file,
+    this.duration,
+    this.waveform,
+    this.trailing,
+    this.footer,
+    super.key,
+  });
+
+  final FileProvider file;
+  final Duration? duration;
+
+  /// 0..1024 per bar (MSC1767); a flat placeholder is drawn when missing.
+  final List<int>? waveform;
+
+  /// Extra control at the end of the row, e.g. the transcribe button.
+  final Widget? trailing;
+
+  /// Shown inside the bubble under the waveform, e.g. the transcript.
+  final Widget? footer;
+
+  /// Creates the media player; tests swap in a fake (the real one needs
+  /// libmpv).
+  static Player Function() createPlayer = Player.new;
+
+  @override
+  State<VoiceMessagePlayer> createState() => _VoiceMessagePlayerState();
+}
+
+class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
+  String get voiceMessageLoadFailed => Intl.message(
+      "Couldn't load the voice message. Tap to try again",
+      name: "voiceMessageLoadFailed",
+      desc:
+          "Voice message in the timeline: tooltip on the play button after the file couldn't be downloaded");
+
+  static const _speeds = [1.0, 1.5, 2.0];
+  static const _bars = 48;
+
+  final Player player = VoiceMessagePlayer.createPlayer();
+  late final List<StreamSubscription> subs;
+
+  bool loading = false;
+  bool loaded = false;
+
+  /// Vommet issue 1065: the last load failed; the button shows it and a tap
+  /// tries again.
+  bool failed = false;
+  bool playing = false;
+  Duration position = Duration.zero;
+  Duration? mediaDuration;
+  int speedIndex = 0;
+
+  Duration get total => mediaDuration ?? widget.duration ?? Duration.zero;
+
+  double get progress {
+    final t = total.inMilliseconds;
+    if (t <= 0) return 0;
+    return (position.inMilliseconds / t).clamp(0.0, 1.0);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    subs = [
+      player.stream.playing.listen((p) {
+        if (mounted) setState(() => playing = p);
+      }),
+      player.stream.position.listen((p) {
+        // Only a moving position counts as playing: media_kit's `playing`
+        // mirrors mpv's pause flag and goes true right after play() even
+        // when nothing decodes or no audio output opens.
+        if (p > Duration.zero) playAttempt?.progressed(media: mediaDuration);
+        if (mounted) setState(() => position = p);
+      }),
+      player.stream.duration.listen((d) {
+        if (mounted && d > Duration.zero) setState(() => mediaDuration = d);
+      }),
+      player.stream.completed.listen((done) {
+        if (done && mounted) {
+          player.pause();
+          player.seek(Duration.zero);
+          setState(() => position = Duration.zero);
+        }
+      }),
+    ];
+  }
+
+  @override
+  void dispose() {
+    playAttempt?.dispose();
+    for (final s in subs) {
+      s.cancel();
+    }
+    PrivateMediaFiles.releaseAfter(player.dispose(), privateCopy);
+    super.dispose();
+  }
+
+  Uri? privateCopy;
+
+  /// Telemetry (voice_message op=play) for the current load; null with
+  /// telemetry off.
+  VoicePlayAttempt? playAttempt;
+
+  Future<void> togglePlay() async {
+    if (playing) {
+      await player.pause();
+      return;
+    }
+    if (!loaded) {
+      playAttempt?.dispose();
+      // This load's own attempt: a later load never gets its timings.
+      final attempt = playAttempt =
+          VoiceMessageTelemetry.startPlay(widget.file, retry: failed);
+      setState(() {
+        loading = true;
+        failed = false;
+      });
+      // Vommet issue 1065: a download that fails or stalls (it times out)
+      // ends the spinner. It used to stay up for good, with no button to
+      // try again, which looked like a voice message loading for minutes.
+      try {
+        final uri = await widget.file.resolve();
+        attempt?.resolved();
+        // Vommet: media from an encrypted room resolves to a private copy,
+        // deleted once the player is done with it (at dispose).
+        if (!mounted) {
+          PrivateMediaFiles.releaseAfter(null, uri);
+          return;
+        }
+        final previous = privateCopy;
+        privateCopy = uri;
+        if (previous != null && previous != uri) {
+          PrivateMediaFiles.release(previous);
+        }
+        if (uri == null) {
+          attempt?.failed("resolve_failed");
+          setState(() {
+            loading = false;
+            failed = true;
+          });
+          return;
+        }
+        // Vommet issue 1065: telemetry on a player that hangs opening it.
+        final file = widget.file;
+        final watch = MediaLoadWatch(
+            path: "voice_open",
+            kind: "voice",
+            encrypted: file is MxcFileProvider && file.sensitive,
+            step: "opening");
+        try {
+          await player.open(Media(uri.toString()), play: false);
+          await player.setPlaylistMode(PlaylistMode.none);
+          await player.setRate(_speeds[speedIndex]);
+          watch.end();
+        } catch (error) {
+          watch.end(error: error);
+          rethrow;
+        }
+        attempt?.opened();
+        loaded = true;
+        if (mounted) setState(() => loading = false);
+      } catch (error) {
+        Log.w("Couldn't load a voice message: $error");
+        attempt?.loadFailed(error);
+        if (mounted) {
+          setState(() {
+            loading = false;
+            failed = true;
+          });
+        }
+        return;
+      }
+      attempt?.playCalled(media: () => mediaDuration);
+    }
+    try {
+      await player.play();
+    } catch (error) {
+      playAttempt?.failed("play_failed", error: error);
+      rethrow;
+    }
+  }
+
+  Future<void> cycleSpeed() async {
+    setState(() => speedIndex = (speedIndex + 1) % _speeds.length);
+    if (loaded) await player.setRate(_speeds[speedIndex]);
+  }
+
+  Future<void> seekTo(double fraction) async {
+    if (!loaded) return;
+    final target = total * fraction.clamp(0.0, 1.0);
+    setState(() => position = target);
+    await player.seek(target);
+  }
+
+  String get speedLabel {
+    final s = _speeds[speedIndex];
+    return s == s.roundToDouble() ? "${s.toInt()}×" : "$s×";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bars = widget.waveform == null
+        ? List<int>.filled(_bars, 220)
+        : VoiceMessage.resample(widget.waveform!, _bars);
+    final timeText = VoiceMessage.formatDuration(
+        playing || position > Duration.zero ? position : total);
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 360),
+      padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+      decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(20)),
+      child: withFooter(Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: loading
+                ? const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : IconButton(
+                    tooltip: playing
+                        ? "Pause"
+                        : failed
+                            ? voiceMessageLoadFailed
+                            : "Play voice message",
+                    icon: Icon(
+                        playing
+                            ? Icons.pause
+                            : failed
+                                ? Icons.error_outline
+                                : Icons.play_arrow,
+                        color:
+                            failed && !playing ? scheme.error : scheme.primary),
+                    onPressed: togglePlay,
+                  ),
+          ),
+          Flexible(
+            child: LayoutBuilder(builder: (context, c) {
+              final width = min(c.maxWidth, 220.0);
+              void seekFromX(double x) => seekTo(x / width);
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (d) => seekFromX(d.localPosition.dx),
+                onHorizontalDragUpdate: (d) => seekFromX(d.localPosition.dx),
+                child: SizedBox(
+                  width: width,
+                  height: 32,
+                  child: CustomPaint(
+                    painter: VoiceWaveformPainter(
+                      bars: bars,
+                      progress: progress,
+                      played: scheme.primary,
+                      unplayed: scheme.onSurface.withAlpha(90),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 40,
+            child: tiamat.Text.labelLow(timeText),
+          ),
+          InkWell(
+            mouseCursor: WidgetStateMouseCursor.clickable,
+            borderRadius: BorderRadius.circular(8),
+            onTap: cycleSpeed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: tiamat.Text.labelLow(speedLabel),
+            ),
+          ),
+          if (widget.trailing != null) widget.trailing!,
+        ],
+      )),
+    );
+  }
+
+  Widget withFooter(Widget row) {
+    if (widget.footer == null) return row;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      alignment: Alignment.topLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [row, widget.footer!],
+      ),
+    );
+  }
+}
+
+/// Rounded bars, played part in [played] colour.
+class VoiceWaveformPainter extends CustomPainter {
+  VoiceWaveformPainter({
+    required this.bars,
+    required this.progress,
+    required this.played,
+    required this.unplayed,
+  });
+
+  final List<int> bars;
+  final double progress;
+  final Color played;
+  final Color unplayed;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (bars.isEmpty) return;
+    final slot = size.width / bars.length;
+    final barWidth = max(1.5, slot * 0.6);
+    final paint = Paint()..strokeCap = StrokeCap.round;
+    for (var i = 0; i < bars.length; i++) {
+      final level = bars[i] / VoiceMessage.waveformMax;
+      final h = max(3.0, level * size.height);
+      final x = i * slot + slot / 2;
+      paint
+        ..color = (i + 0.5) / bars.length <= progress ? played : unplayed
+        ..strokeWidth = barWidth;
+      canvas.drawLine(Offset(x, (size.height - h) / 2 + barWidth / 2),
+          Offset(x, (size.height + h) / 2 - barWidth / 2), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(VoiceWaveformPainter old) =>
+      old.progress != progress ||
+      old.bars != bars ||
+      old.played != played ||
+      old.unplayed != unplayed;
+}
