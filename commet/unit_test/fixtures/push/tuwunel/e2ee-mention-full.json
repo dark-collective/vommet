@@ -1,0 +1,31 @@
+{
+  "notification": {
+    "event_id": "$event-e2ee-mention",
+    "room_id": "!room-e2ee:example.org",
+    "type": "m.room.encrypted",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "content": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "ciphertext": "AwgBEuACTJcQ9ykvSBPUwOVjG0RGRIEZHY+OlSFu0WifC+AHX2fwIdqtLh1CPEyo5ZtATVOBbP6dfXXAClKTg+fIQaFPfwn/2Febh9HgAEzxzv5FD/uxC6fbUJPHS/sYN1w2mP5R1fQv5BzeVGsccbe42V8yTpC+E3A/XtpoW5KlD5xyiOOHPbMlTnJBiCK31diQ4/monrcKBulCKT0v7sHrAkiWXZKC4Yd8vKPMcEdcliQNkz6LOvePVpdk9tXO+MO8olR1RNuPll9sVPdb7PZod8IqR4qXIVth7Vfg0gW32m36zrzaxCR08mH5f2ehSGqQSURUAp4Yv9nHA8mbFgIk1iXPrsB/5V8qAj/PxqRwdBpZ/idqbPx+nnv4MfKS+2IrVY8YlJRFev+OMVBEwPqhct7/2cf8uHZezc/uGIbF28fnD1JemX7vK/r/bxOpi73tf4ulN+jvrwSxEmd2cAgUlOkeTqccYQhgZlwh/yf0KCkkoHA43deJEJasOMUsgJkDbc5z0PcYR3nKh5lYs3yGakvDT8l5//tWAD6eJ3JNjQcKg8VeW6zxhWLDBA",
+      "device_id": "yK0vwDYKMq",
+      "sender_key": "yaC4R43+Oyonf+ZDFIjLcdWng1vY1hUWK3E0ew3xmVc",
+      "session_id": "/rav+E5HUYSHmF3nUGuzJBn5f6c6uVj4zS/ZJ4BUD1M"
+    },
+    "counts": {
+      "unread": 18
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "pushkey": "pushkey-full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "tweaks": {
+          "sound": "default"
+        }
+      }
+    ]
+  }
+}
