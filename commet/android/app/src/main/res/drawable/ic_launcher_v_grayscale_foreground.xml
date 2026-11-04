@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vommet (more app icons): the Mono V (assets/images/app_icon/icon_v_grayscale.svg) as
+     the adaptive icon's foreground, scaled so its corners stay inside the round mask. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.6"
+        android:scaleY="1.6"
+        android:translateX="25.2"
+        android:translateY="25.2">
+        <path android:fillColor="#FFFFFF" android:pathData="M3.00,5.00 L9.01,20.45 L9.01,5.00Z"/>
+        <path android:fillColor="#E0E0E0" android:pathData="M11.50,5.00 L9.00,5.00 L9.00,20.43 L13.50,32.00 L15.01,32.00 L15.01,14.72Z"/>
+        <path android:fillColor="#C2C2C2" android:pathData="M18.00,23.00 L15.00,14.69 L15.00,32.00 L21.01,32.00 L21.01,14.66Z"/>
+        <path android:fillColor="#E0E0E0" android:pathData="M24.50,5.00 L21.00,14.69 L21.00,32.00 L22.50,32.00 L27.01,20.40 L27.01,5.00Z"/>
+        <path android:fillColor="#FFFFFF" android:pathData="M27.00,5.00 L27.00,20.43 L33.00,5.00Z"/>
+        <path android:fillColor="#FFFFFF" android:pathData="M18.00,4.00 L19.35,6.74 L22.37,7.18 L20.19,9.31 L20.70,12.32 L18.00,10.90 L15.30,12.32 L15.81,9.31 L13.63,7.18 L16.65,6.74Z"/>
+    </group>
+</vector>
