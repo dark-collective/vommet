@@ -1,0 +1,72 @@
+import 'package:commet/client/auth.dart';
+import 'package:commet/client/client.dart';
+import 'package:commet/client/matrix/matrix_client.dart';
+import 'package:commet/ui/pages/secure_setup/login_password_memory.dart';
+import 'package:commet/config/build_config.dart';
+import 'package:intl/intl.dart';
+
+import 'package:matrix/matrix.dart' as matrix;
+
+String get messageUserDeactivated => Intl.message(
+    "Your account has been deactivated",
+    name: "messageUserDeactivated",
+    desc:
+        "An error message displayed when the user attempts to log into an account that has been disabled");
+
+/// Vommet: what a failed password login means for the user (Vommet issue
+/// 38). The spec answers a wrong username or password with `M_FORBIDDEN`.
+LoginResult loginResultForException(matrix.MatrixException exception) {
+  return switch (exception.errcode) {
+    "M_USER_DEACTIVATED" => LoginResultError(messageUserDeactivated),
+    "M_FORBIDDEN" => LoginResultInvalidCredentials(),
+    _ => LoginResultError(exception.errorMessage),
+  };
+}
+
+class MatrixPasswordLoginFlow implements PasswordLoginFlow {
+  @override
+  String? password;
+
+  @override
+  String? username;
+
+  @override
+  Future<LoginResult> submit(Client client) async {
+    if (username == null) {
+      return LoginResultError("Enter a username");
+    }
+
+    if (password == null) {
+      return LoginResultError("Enter a password");
+    }
+
+    if (client is! MatrixClient) {
+      return LoginResultFailed();
+    }
+
+    var mx = client.getMatrixClient();
+    LoginResult result = LoginResultError("An unknown error occurred");
+
+    try {
+      var response = await mx.login(matrix.LoginType.mLoginPassword,
+          initialDeviceDisplayName: BuildConfig.appName,
+          password: password,
+          identifier: matrix.AuthenticationUserIdentifier(user: username!));
+
+      if (response.accessToken.isNotEmpty) {
+        result = LoginResultSuccess();
+        // Vommet: in memory only, so the recovery password screen can warn
+        // about reusing it (Vommet issue 129).
+        LoginPasswordMemory.remember(response.userId, password!);
+      } else {
+        result = LoginResultFailed();
+      }
+    } on matrix.MatrixException catch (exception) {
+      result = loginResultForException(exception);
+    } catch (e) {
+      result = LoginResultError(e.toString());
+    }
+
+    return result;
+  }
+}
