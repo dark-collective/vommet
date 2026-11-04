@@ -1,0 +1,4 @@
+lib/ui/pages/login/login_page_view.dart
+unit_test/login_page_short_screen_test.dart
+unit_test/render/login_renders_test.dart
+unit_test/render/render_png.dart

@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "widgets": [
+    {
+      "id": "park-chess",
+      "name": "Park Chess",
+      "by": "Vommet",
+      "by_url": "https://vommet.app",
+      "tags": [
+        "game",
+        "new"
+      ],
+      "summary": "Casual chess with your friends, on a wooden table in the park.",
+      "about": [
+        "Sit down on a bench as White or Black, and anyone else in the room can watch. Moves are saved in the room, so a game can go on for days: close it, come back tomorrow, and the board is where you left it.",
+        "Every move is checked by everyone's copy of the game, so nobody can sneak in an illegal move or play out of turn. Offer a draw, resign, or hit Play again for a rematch with the colours swapped."
+      ],
+      "url": "https://vommet.app/widgets/park-chess/play/?widgetId=$matrix_widget_id&userId=$matrix_user_id&displayName=$matrix_display_name&roomId=$matrix_room_id&theme=$org.matrix.msc2873.client_theme",
+      "type": "app.vommet.park_chess",
+      "sends": [
+        "app.vommet.park_chess"
+      ],
+      "host": "vommet.app",
+      "source": "https://nether.codes/nether/vommet-site/src/branch/main/widgets/park-chess/play",
+      "try_url": "/widgets/park-chess/play/",
+      "preview": "/widgets/park-chess/preview.png",
+      "icon": "chess"
+    },
+    {
+      "id": "luanti",
+      "name": "Luanti",
+      "by": "Vommet",
+      "by_url": "https://vommet.app",
+      "tags": [
+        "game",
+        "new",
+        "experiment"
+      ],
+      "summary": "Build together in a world of blocks, in creative mode.",
+      "about": [
+        "Luanti (formerly Minetest) is a free, open-source voxel game, made by the Luanti team and played here through paradust7's web port. This widget opens it in your browser and drops everyone straight into a shared creative world hosted by Nether: no install, no menus, just type a name and start building.",
+        "The world is saved on the server, so builds stay when everyone leaves. Place a protector block to keep your builds safe from others. Experiment: it needs a recent Chrome, Chromium or Edge (version 137 or newer) and a fairly recent computer."
+      ],
+      "url": "https://vommet.app/widgets/luanti/play/?server=nether.im&name=$matrix_display_name&theme=$org.matrix.msc2873.client_theme",
+      "host": "vommet.app, game server luanti.nether.im",
+      "source": "https://github.com/paradust7/luanti-wasm",
+      "icon": "blocks",
+      "direct": true,
+      "open_in_browser": true,
+      "servers": [
+        {
+          "name": "nether.im",
+          "detail": "Creative world hosted by Nether"
+        }
+      ],
+      "notices": [
+        {
+          "icon": "browser",
+          "text": "Opens in your browser, not inside Vommet: the game needs a recent Chrome, Chromium or Edge."
+        },
+        {
+          "icon": "unlocked",
+          "text": "The game isn't end-to-end encrypted, even in an encrypted room. Nether's server sees what you build and say in it."
+        },
+        {
+          "icon": "save",
+          "text": "Names aren't checked yet: anyone can pick any player name. Matrix sign-in is planned."
+        }
+      ]
+    },
+    {
+      "id": "drawpile",
+      "name": "Drawpile",
+      "by": "Drawpile",
+      "by_url": "https://drawpile.net",
+      "tags": [
+        "art",
+        "new",
+        "experiment"
+      ],
+      "summary": "Paint together on one canvas, with real brushes and layers.",
+      "about": [
+        "Open Drawpile's painting app with everyone in the room: real brushes, layers, a colour wheel and a chat, all on one shared canvas. It runs in its own window, on Nether's Drawpile server.",
+        "Everyone who opens it joins the same canvas, and it's ready the moment anyone opens it. The canvas isn't end-to-end encrypted. It stays when everyone leaves; a canvas nobody uses for 14 days is removed, so save your drawing from the File menu to keep a copy."
+      ],
+      "url": "https://vommet.app/widgets/drawpile/play/?server=drawpile.nether.im&session=vm-$vommet.new_id&key=$vommet.new_secret&theme=$org.matrix.msc2873.client_theme",
+      "host": "web.drawpile.net, opened from vommet.app; canvas on drawpile.nether.im",
+      "source": "https://github.com/drawpile/Drawpile",
+      "icon": "palette",
+      "direct": true,
+      "servers": [
+        {
+          "name": "nether.im",
+          "detail": "Nether's Drawpile server, always ready"
+        }
+      ],
+      "notices": [
+        {
+          "icon": "unlocked",
+          "text": "The canvas isn't end-to-end encrypted, even in an encrypted room. Nether's moderators can see it."
+        },
+        {
+          "icon": "save",
+          "text": "A canvas nobody uses for 14 days is removed. Save yours from the File menu to keep a copy."
+        }
+      ]
+    },
+    {
+      "id": "draw",
+      "name": "Draw",
+      "by": "Commet",
+      "by_url": "https://commet.chat",
+      "tags": [
+        "fun",
+        "matrixrtc",
+        "alpha"
+      ],
+      "summary": "Draw with your friends over MatrixRTC.",
+      "about": [
+        "Inspired by a late night of drawing doodles on a Monopoly table in Tabletop Simulator: a simple widget for drawing with your friends over MatrixRTC. Strokes are saved in the Matrix room, so you can keep coming back to it and adding more drawings."
+      ],
+      "url": "https://draw.commet.chat/matrix?widgetId=$matrix_widget_id&perParticipantE2EE=true&userId=$matrix_user_id&deviceId=$org.matrix.msc3819.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&roomId=$matrix_room_id&safeArea=$chat.commet.safe_area&chat.commet.color_scheme=$chat.commet.color_scheme",
+      "type": "com.lagmachine.drawinggame",
+      "host": "draw.commet.chat",
+      "source": "https://github.com/commetchat/draw",
+      "preview_mxc": "mxc://matrix.org/hNkBFdxRDvlGDwkJTcInEmLt",
+      "icon": "draw"
+    },
+    {
+      "id": "neoboard",
+      "name": "Neoboard",
+      "by": "Nordeck",
+      "by_url": "https://nordeck.net",
+      "tags": [
+        "utility"
+      ],
+      "summary": "A collaborative whiteboard for Matrix rooms.",
+      "about": [
+        "Collaborate with your peers in real time, while keeping full control of your data and keeping it secure with end-to-end encryption."
+      ],
+      "url": "https://nordeck.github.io/matrix-neoboard/#/?theme=$org.matrix.msc2873.client_theme&matrix_user_id=$matrix_user_id&matrix_display_name=$matrix_display_name&matrix_avatar_url=$matrix_avatar_url&matrix_room_id=$matrix_room_id&matrix_client_id=$org.matrix.msc2873.client_id&matrix_client_language=$org.matrix.msc2873.client_language&matrix_device_id=$org.matrix.msc3819.matrix_device_id&matrix_base_url=$org.matrix.msc4039.matrix_base_url",
+      "host": "nordeck.github.io",
+      "source": "https://github.com/nordeck/matrix-neoboard",
+      "preview_mxc": "mxc://matrix.org/DhIjsHLMifcxDlOBNQDOZOVr",
+      "icon": "board"
+    },
+    {
+      "id": "paperchat",
+      "name": "Paperchat",
+      "by": "Airyz",
+      "by_url": "https://airyz.xyz",
+      "tags": [
+        "fun"
+      ],
+      "summary": "Chat like it's 2004!",
+      "about": [
+        "A fork of an existing project, with quick support for the Matrix widget API hacked in. Its author says it's not particularly polished, but fun to play with for a little while."
+      ],
+      "url": "https://paperchat.airyz.workers.dev/#/?widgetId=$matrix_widget_id&matrix_user_id=$matrix_user_id&matrix_room_id=$matrix_room_id&theme=$org.matrix.msc2873.client_theme&matrix_display_name=$matrix_display_name&matrix_avatar_url=$matrix_avatar_url&language=$org.matrix.msc2873.client_language",
+      "type": "xyz.airyz.paperchat",
+      "host": "paperchat.airyz.workers.dev",
+      "source": "https://github.com/Airyzz/paperchat",
+      "preview_mxc": "mxc://matrix.org/ZqGWNwvEMdbCubDRJLAhbldl",
+      "icon": "paper"
+    },
+    {
+      "id": "watch-party",
+      "name": "Watch Party",
+      "by": "Commet",
+      "by_url": "https://commet.chat",
+      "tags": [
+        "fun",
+        "matrixrtc",
+        "alpha"
+      ],
+      "summary": "Watch YouTube videos together over MatrixRTC.",
+      "about": [
+        "Watch YouTube videos with your friends over MatrixRTC. Still in alpha."
+      ],
+      "url": "https://watchparty.commet.chat/?widgetId=$matrix_widget_id&perParticipantE2EE=true&userId=$matrix_user_id&deviceId=$org.matrix.msc3819.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&roomId=$matrix_room_id&chat.commet.color_scheme=$chat.commet.color_scheme",
+      "type": "chat.commet.matrix-watch-party",
+      "host": "watchparty.commet.chat",
+      "source": "https://github.com/commetchat/matrix-watch-party",
+      "avatar_mxc": "mxc://matrix.org/infsQzLpxfeHtEvbjxWKsEHD",
+      "preview_mxc": "mxc://matrix.org/QCvgSHnLlDdqbVthlSjSWHZU",
+      "icon": "play"
+    }
+  ]
+}
