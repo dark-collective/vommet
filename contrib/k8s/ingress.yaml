@@ -1,0 +1,22 @@
+# Not in kustomization.yaml by default: set the host (and your ingress class /
+# TLS secret), then uncomment `- ingress.yaml` there.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vommet-web
+spec:
+  # ingressClassName: nginx
+  rules:
+    - host: vommet.example.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vommet-web
+                port:
+                  name: web
+  # tls:
+  #   - hosts: [vommet.example.org]
+  #     secretName: vommet-web-tls
