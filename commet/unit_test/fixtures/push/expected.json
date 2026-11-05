@@ -1,0 +1,258 @@
+[
+  {
+    "server": "synapse",
+    "case": "dm",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "dm",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "group",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "group",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "group3",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": false,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "group3",
+    "format": "full",
+    "shown": true,
+    "sound": false,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "mention",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "synapse",
+    "case": "mention",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "synapse",
+    "case": "keyword",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "synapse",
+    "case": "keyword",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "synapse",
+    "case": "thread",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "thread",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "e2ee-dm",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "e2ee-dm",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "synapse",
+    "case": "e2ee-mention",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "synapse",
+    "case": "e2ee-mention",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "tuwunel",
+    "case": "dm",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "dm",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "group",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "group",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "group3",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": false,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "group3",
+    "format": "full",
+    "shown": true,
+    "sound": false,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "mention",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "tuwunel",
+    "case": "mention",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "tuwunel",
+    "case": "keyword",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "tuwunel",
+    "case": "keyword",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "tuwunel",
+    "case": "thread",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "thread",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "e2ee-dm",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "e2ee-dm",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": false
+  },
+  {
+    "server": "tuwunel",
+    "case": "e2ee-mention",
+    "format": "event_id_only",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  },
+  {
+    "server": "tuwunel",
+    "case": "e2ee-mention",
+    "format": "full",
+    "shown": true,
+    "sound": true,
+    "highlight": true
+  }
+]

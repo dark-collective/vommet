@@ -1,0 +1,23 @@
+name: bergamot_translator
+description: "Bergamot Translator (Marian NMT, the Firefox Translations engine) as a Flutter FFI plugin. Vendored into Vommet; see README.md."
+version: 0.0.1+vommet.1
+publish_to: none
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.3
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
