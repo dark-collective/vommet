@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vommet: backgrounds of the recolored V launcher icons (more app icons). -->
+<resources>
+    <color name="ic_launcher_v_midnight_background">#0D1117</color>
+    <color name="ic_launcher_v_grayscale_background">#111111</color>
+    <color name="ic_launcher_v_sunset_background">#3B0A2A</color>
+    <color name="ic_launcher_v_pastel_background">#EFE8FF</color>
+</resources>
