@@ -1,0 +1,10 @@
+lib/cache/media_stream_server.dart
+lib/cache/streamable_file_provider.dart
+lib/client/matrix/matrix_mxc_file_provider.dart
+lib/telemetry/media_load_telemetry.dart
+lib/ui/molecules/video_player/video_player_implementation.dart
+lib/ui/molecules/voice_message/voice_message_player.dart
+unit_test/media_load_fake_player.dart
+unit_test/media_load_stall_telemetry_test.dart
+unit_test/media_load_video_open_telemetry_test.dart
+unit_test/media_load_voice_open_telemetry_test.dart
