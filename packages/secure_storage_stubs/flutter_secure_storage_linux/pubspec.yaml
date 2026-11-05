@@ -1,0 +1,25 @@
+# Vommet: an empty stand-in for flutter_secure_storage's Linux
+# implementation. On Linux Vommet keeps its local data key in the Secret Service or the Secret portal
+# (its own D-Bus client), see commet/lib/security/key_vault/, and never
+# calls flutter_secure_storage; the real package links libsecret and jsoncpp. See ../README.md.
+name: flutter_secure_storage_linux
+description: Empty Linux stand-in for flutter_secure_storage (Vommet).
+version: 0.0.0+vommet.1
+publish_to: none
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+# A Dart-only plugin (no native code), so flutter_secure_storage's default
+# package resolves and nothing is built or linked.
+flutter:
+  plugin:
+    implements: flutter_secure_storage
+    platforms:
+      linux:
+        dartPluginClass: FlutterSecureStorageLinuxStub
