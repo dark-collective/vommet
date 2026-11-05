@@ -1,0 +1,20 @@
+{
+  "cards": {
+    "contribute": {
+      "title": "Ways to help",
+      "body": "### Help Vommet\n\n**1. Hire the maintainer** — Hire me if you’re looking for a programmer, Linux sysadmin, or networking guru.\n\n**2. Dart and Flutter** — Help develop and maintain Vommet. Discuss larger changes before starting.\n\n**3. AI-assisted work** — AI-assisted contributions are welcome. Disclose AI use; a human is responsible for reading and testing the work.\n\n**4. Test Vommet** — Try builds and report reproducible problems.\n\n**5. App-store packaging** — Help package Vommet for Google Play and the Apple App Store.",
+      "buttons": [
+        {
+          "label": "Contribution guide",
+          "kind": "link",
+          "target": "https://nether.codes/nether/vommet/src/branch/main/CONTRIBUTING.md"
+        },
+        {
+          "label": "Agent brief",
+          "kind": "link",
+          "target": "https://nether.codes/nether/meta/src/branch/master/agents/vommet-contributor.md"
+        }
+      ]
+    }
+  }
+}
