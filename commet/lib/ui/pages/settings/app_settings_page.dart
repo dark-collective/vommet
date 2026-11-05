@@ -1,0 +1,26 @@
+import 'package:commet/main.dart';
+import 'package:commet/ui/pages/settings/categories/about/settings_category_about.dart';
+import 'package:commet/ui/pages/settings/settings_page.dart';
+import 'package:commet/ui/pages/settings/settings_quit_button.dart';
+import 'package:flutter/widgets.dart';
+
+import 'categories/account/settings_category_account.dart';
+import 'categories/app/settings_category_app.dart';
+
+class AppSettingsPage extends StatelessWidget {
+  const AppSettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsPage(
+        // Vommet: the donation flow goes to commet.chat; not offered in the fork.
+        showDonateButton: false,
+        settings: [
+          if (clientManager!.clients.isNotEmpty) SettingsCategoryAccount(),
+          SettingsCategoryApp(),
+          SettingsCategoryAbout(),
+        ],
+        // Vommet issue 348: "Quit Vommet" at the bottom of the list.
+        buttons: SettingsQuitButton.buttons());
+  }
+}
