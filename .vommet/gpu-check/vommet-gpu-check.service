@@ -1,0 +1,10 @@
+[Unit]
+Description=Vommet nightly GPU widget check
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vommet-gpu-check/nightly.sh
+Nice=10
+TimeoutStartSec=3h
