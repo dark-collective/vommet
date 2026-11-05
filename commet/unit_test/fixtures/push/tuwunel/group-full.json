@@ -1,0 +1,29 @@
+{
+  "notification": {
+    "event_id": "$event-group",
+    "room_id": "!room-group:example.org",
+    "type": "m.room.message",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "room_name": "Group room",
+    "content": {
+      "body": "a group message",
+      "msgtype": "m.text"
+    },
+    "counts": {
+      "unread": 12
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "pushkey": "pushkey-full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "tweaks": {
+          "sound": "default"
+        }
+      }
+    ]
+  }
+}
