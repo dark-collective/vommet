@@ -1,0 +1,41 @@
+{
+  "notification": {
+    "content": {
+      "body": "a thread reply",
+      "m.relates_to": {
+        "event_id": "$event-group",
+        "is_falling_back": true,
+        "m.in_reply_to": {
+          "event_id": "$event-group"
+        },
+        "rel_type": "m.thread"
+      },
+      "msgtype": "m.text"
+    },
+    "counts": {
+      "unread": 6
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "pushkey": "pushkey-full",
+        "pushkey_ts": 1700000000,
+        "tweaks": {
+          "highlight": false,
+          "sound": "default"
+        }
+      }
+    ],
+    "event_id": "$event-thread",
+    "id": "$event-thread",
+    "prio": "high",
+    "room_id": "!room-group:example.org",
+    "room_name": "Group room",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "type": "m.room.message"
+  }
+}
