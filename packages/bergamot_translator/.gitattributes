@@ -1,0 +1,3 @@
+# The patches must keep LF line endings on Windows checkouts (core.autocrlf), or
+# they no longer match the LF sources cmake/sources.cmake fetches.
+third_party/patches/*.patch text eol=lf
