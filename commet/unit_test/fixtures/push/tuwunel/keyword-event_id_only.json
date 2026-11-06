@@ -1,0 +1,19 @@
+{
+  "notification": {
+    "event_id": "$event-keyword",
+    "room_id": "!room-group:example.org",
+    "counts": {
+      "unread": 15
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.eventidonly",
+        "pushkey": "pushkey-event_id_only",
+        "data": {
+          "format": "event_id_only",
+          "local_client_id": "client-alice"
+        }
+      }
+    ]
+  }
+}
