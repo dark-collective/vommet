@@ -1,0 +1,30 @@
+# Vommet: the desktop widget window (rust/rust/src/widget_runner.rs, the code
+# `vommet --widget_runner` runs) built on its own for the nightly widget check
+# (.vommet/widgets/run.sh), without the rest of the app's Rust library: the
+# program is the app's own rust/rust/src/main.rs, which only runs that module.
+# Dependency versions as in rust/rust/Cargo.toml; run.sh copies the root
+# Cargo.lock in first so the same releases are used.
+[package]
+name = "vommet-widget-window"
+version = "0.1.0"
+edition = "2021"
+publish = false
+autobins = false
+
+[[bin]]
+name = "vommet-widget-window"
+path = "../../../rust/rust/src/main.rs"
+
+[workspace]
+
+[dependencies]
+image = "0.25.10"
+log = "0.4.29"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+stderrlog = "0.6.0"
+tao = "0.34.6"
+tokio = { version = "1.50.0", features = ["io-util", "io-std", "rt", "macros", "sync"] }
+wry = "0.54.4"
+gtk = "0.18.2"
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
