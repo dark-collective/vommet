@@ -1,0 +1,213 @@
+# Vommet: signed arm64 APK for the tester releases. Runs only on the GitHub
+# copy (github.com/dark-collective/vommet); Forgejo never sees this file.
+# Replaces Forgejo's android.yml for the testing candidate (2026-10-11, Phase 2
+# of moving release builds off the single-slot Forgejo runner).
+#
+# Same build as android.yml: codegen, the fork's signing key, flutter build apk
+# --split-per-abi for arm64 with Dart symbols split out. Signing secrets
+# ANDROID_KEY_STORE_B64 + ANDROID_KEY_PASSWORD are secrets of the GitHub environment
+# android-signing (operator-set 10-12, same values as on Forgejo; usable only from
+# ci/windows-testing and ci/windows-android*); only the signing step sees them,
+# and the key files are deleted right after the build. The APK's signer is
+# checked against the fork key's certificate before anything is published.
+#
+# versionCode: android.yml used 2000 + Forgejo run number (about 7140 by
+# 10-11); GitHub run numbers start at 1, so that would make updates impossible.
+# Build number = minutes since 2026-01-01 UTC (about 411000 on 10-11): always
+# higher than any run-number build and than every earlier build of this scheme.
+# android.yml uses the same formula since topic ci/github-android.
+#
+# winbranch.sh pushes ci/windows-testing = candidate + this file +
+# .vommet/ci/source-sha; ghgate.sh mirrors the result onto the candidate;
+# apkwatch.sh and the symbols archive download from the pre-release.
+name: vommet-android
+
+on:
+  push:
+    branches: ['ci/windows-testing', 'ci/windows-android*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vommet-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  PROJECT_PATH: commet
+  # SHA-256 of the fork key's certificate (apksigner --print-certs): first and
+  # last 8 hex digits, enough to catch a wrong or missing key.
+  CERT_PREFIX: 9bf4526c
+  CERT_SUFFIX: 86c1
+
+jobs:
+  apk:
+    if: github.repository == 'dark-collective/vommet'
+    runs-on: ubuntu-24.04
+    # The signing secrets live in this environment (operator 10-12), which only
+    # ci/windows-testing and ci/windows-android* may use: a workflow on any other
+    # branch can't read the key.
+    environment: android-signing
+    timeout-minutes: 75
+    outputs:
+      label: ${{ steps.label.outputs.label }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install failure-annotation helper
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/ci_run" <<'SH'
+          #!/usr/bin/env bash
+          set -o pipefail
+          log=$(mktemp)
+          "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            msg=$(grep -E '^(error|Error|ERROR)|error:|Exception|FAILED|Failed|What went wrong|\[E\]' "$log" | tail -n 40)
+            [ -n "$msg" ] || msg=$(tail -n 40 "$log")
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\r'/'%0D'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=$1 failed::$msg"
+          fi
+          exit "$status"
+          SH
+          chmod +x "$HOME/bin/ci_run"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # The image's preinstalled toolchains we don't use; Gradle + NDK + the
+      # Rust cross-build need the room.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Setup Java 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache cargo and Gradle
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: android-${{ hashFiles('**/Cargo.lock', '**/pubspec.lock', 'commet/android/**/*.gradle', 'commet/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: android-
+
+      - name: Rust Android target
+        run: rustup target add aarch64-linux-android
+
+      - name: Configure Flutter
+        run: |
+          (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          flutter config --no-analytics --android-sdk "$ANDROID_HOME"
+          flutter --version
+
+      - name: Code generation
+        run: cd $PROJECT_PATH && ci_run dart run scripts/codegen.dart
+
+      - name: Version label and build number
+        id: label
+        run: |
+          vt=$(bash .vommet/ci/version-tag.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" 2>/dev/null || true)
+          vt=${vt:-$GITHUB_REF_NAME.$GITHUB_RUN_NUMBER}
+          bn=$(( ($(date -u +%s) - 1767225600) / 60 ))
+          src=$(cat .vommet/ci/source-sha 2>/dev/null || true)
+          echo "label=$vt" >> "$GITHUB_OUTPUT"
+          { echo "VT=$vt"; echo "BUILD_NUMBER=$bn"; echo "SOURCE_SHA=${src:-$GITHUB_SHA}"; } >> "$GITHUB_ENV"
+          echo "label '$vt', build number $bn (versionCode $((2000 + bn))), source ${src:-$GITHUB_SHA}"
+
+      - name: Signing key
+        env:
+          KEY_B64: ${{ secrets.ANDROID_KEY_STORE_B64 }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd $PROJECT_PATH
+          if [ -z "$KEY_B64" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::signing secrets missing"; exit 1
+          fi
+          dart run scripts/setup_android_release.dart --key_password "$KEY_PASSWORD" --key_b64 "$KEY_B64" >/dev/null
+
+      # --split-per-abi: arm64 only (versionCode = 2000 + build number).
+      # --split-debug-info: Dart symbols go to build/symbols, published below
+      # for the crash-symbols archive.
+      - name: Build APK (arm64, release)
+        run: |
+          cd $PROJECT_PATH
+          ci_run flutter build apk --release --target-platform android-arm64 --split-per-abi \
+            --split-debug-info=build/symbols \
+            --build-number=$BUILD_NUMBER \
+            --dart-define BUILD_MODE=release \
+            --dart-define PLATFORM=android \
+            --dart-define GIT_HASH=$SOURCE_SHA \
+            --dart-define "VERSION_TAG=$VT" \
+            --dart-define BUILD_DETAIL=ci \
+            --dart-define ENABLE_GOOGLE_SERVICES=false \
+            --dart-define BUILD_DATE=$(date +%s000)
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../vommet-android-arm64.apk
+          ls -la ../vommet-android-arm64.apk
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f $PROJECT_PATH/android/key.jks $PROJECT_PATH/android/key.properties
+
+      - name: Check the signer
+        run: |
+          signer=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          d=$("$signer" verify --print-certs vommet-android-arm64.apk | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          echo "signer SHA-256 ${d:0:8}...${d: -4}"
+          [[ $d == $CERT_PREFIX* && $d == *$CERT_SUFFIX ]] || { echo "::error::APK is not signed with the fork key (${d:0:8}...)"; exit 1; }
+
+      - name: Package symbols
+        run: gzip -9 -c $PROJECT_PATH/build/symbols/app.android-arm64.symbols > app.android-arm64.symbols.gz
+
+      - name: Upload APK + symbols
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vommet-android-arm64
+          path: |
+            vommet-android-arm64.apk
+            app.android-arm64.symbols.gz
+          retention-days: 14
+
+  # Release assets download without a GitHub login; apkwatch.sh and the
+  # symbols archive fetch from here. Only this job can write.
+  release:
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: vommet-android-arm64
+
+      - name: Publish as a GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ needs.apk.outputs.label }}
+        run: |
+          set -euo pipefail
+          sha256sum vommet-android-arm64.apk app.android-arm64.symbols.gz > SHA256SUMS
+          branch="${GITHUB_REF_NAME//\//-}"
+          notes="Signed arm64 APK of ${GITHUB_REF_NAME} at ${GITHUB_SHA::8}, label ${LABEL}, plus its Dart debug symbols. Vommet tester releases: https://nether.codes/nether/vommet/releases"
+          gh release create "android-${branch}-${GITHUB_RUN_NUMBER}" \
+            vommet-android-arm64.apk app.android-arm64.symbols.gz SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Android ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER}" --notes "$notes"
