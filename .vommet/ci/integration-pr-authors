@@ -1,0 +1,3 @@
+# Authors whose PRs also run the full integration suite on the GitHub copy (pr-github.yml 3b):
+# one login per line. The AI agent accounts, whose PRs the sync intake reviews.
+codex
