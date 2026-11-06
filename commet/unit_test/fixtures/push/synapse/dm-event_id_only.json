@@ -1,0 +1,21 @@
+{
+  "notification": {
+    "counts": {
+      "unread": 6
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.eventidonly",
+        "data": {
+          "format": "event_id_only",
+          "local_client_id": "client-alice"
+        },
+        "pushkey": "pushkey-event_id_only",
+        "pushkey_ts": 1700000000
+      }
+    ],
+    "event_id": "$event-dm",
+    "prio": "high",
+    "room_id": "!room-dm:example.org"
+  }
+}
