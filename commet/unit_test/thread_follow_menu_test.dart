@@ -1,0 +1,279 @@
+import 'package:commet/client/client.dart';
+import 'package:commet/client/components/component.dart';
+import 'package:commet/client/components/room_component.dart';
+import 'package:commet/client/matrix/components/threads/matrix_threads_component.dart';
+import 'package:commet/client/matrix/components/threads/thread_reply_tracker.dart';
+import 'package:commet/client/matrix/matrix_client.dart';
+import 'package:commet/client/matrix/matrix_room.dart';
+import 'package:commet/client/matrix/matrix_timeline.dart';
+import 'package:commet/client/matrix/timeline_events/matrix_timeline_event_message.dart';
+import 'package:commet/client/permissions.dart';
+import 'package:commet/client/timeline_events/timeline_event.dart';
+import 'package:commet/main.dart' show preferences;
+import 'package:commet/ui/molecules/timeline_events/timeline_event_menu.dart';
+import 'package:commet/utils/translation/engine.dart';
+import 'package:commet/utils/translation/message_translation.dart';
+import 'package:commet/utils/translation/room_translation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:matrix/matrix.dart' as matrix;
+import 'package:matrix/src/utils/cached_stream_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tiamat/atoms/context_menu.dart';
+
+// Vommet issue 1077: "Follow thread" / "Unfollow thread" in the real message
+// menu of a thread root in the main timeline, with the SDK faked at the
+// network boundary.
+
+const _me = "@me:example.org";
+const _rootId = r"$root";
+
+/// Rin's thread root as the local store keeps it: from before you replied,
+/// so its summary says you didn't take part.
+Map<String, Object?> _storedRoot(String roomId) => {
+      "type": "m.room.message",
+      "event_id": _rootId,
+      "room_id": roomId,
+      "sender": "@rin:example.org",
+      "origin_server_ts": 1000,
+      "content": {"msgtype": "m.text", "body": "Movie night on Friday?"},
+      "unsigned": {
+        "m.relations": {
+          "m.thread": {"count": 1, "current_user_participated": false},
+        },
+      },
+    };
+
+class _Sdk extends Fake implements matrix.Client {
+  final List<Map<String, Object?>> writes = [];
+
+  @override
+  String? get userID => _me;
+
+  // The room is on "All threads": no thread reply rules.
+  @override
+  matrix.PushRuleSet? get globalPushRules => null;
+
+  @override
+  final CachedStreamController<matrix.SyncUpdate> onSync =
+      CachedStreamController();
+
+  // Saved messages and quick replies read account data.
+  @override
+  final Map<String, matrix.BasicEvent> accountData = {};
+
+  @override
+  Future<void> setAccountDataPerRoom(
+    String userId,
+    String roomId,
+    String type,
+    Map<String, Object?> body,
+  ) async {
+    if (type == "im.vommet.thread_follows") writes.add(body);
+  }
+}
+
+class _Perms extends Permissions {
+  @override
+  bool get canSendMessage => true;
+
+  @override
+  bool get canUserEditMessages => false;
+}
+
+class _Client implements MatrixClient {
+  _Client(this.sdk);
+  final _Sdk sdk;
+  late final MatrixThreadsComponent threads = MatrixThreadsComponent(this);
+
+  @override
+  String get identifier => "fixture";
+
+  @override
+  matrix.Client getMatrixClient() => sdk;
+
+  @override
+  matrix.Client get matrixClient => sdk;
+
+  @override
+  T? getComponent<T extends Component>() => threads is T ? threads as T : null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _Room implements MatrixRoom {
+  _Room(this.client, String id)
+      : matrixRoom = matrix.Room(id: id, client: client.sdk);
+
+  @override
+  final _Client client;
+
+  @override
+  final matrix.Room matrixRoom;
+
+  @override
+  String get identifier => matrixRoom.id;
+
+  @override
+  Permissions get permissions => _Perms();
+
+  @override
+  T? getComponent<T extends RoomComponent>() => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _SdkTimeline extends Fake implements matrix.Timeline {
+  @override
+  final Map<String, Map<String, Set<matrix.Event>>> aggregatedEvents = {};
+}
+
+/// The room's main timeline, holding the root.
+class _Timeline implements MatrixTimeline {
+  _Timeline(this.room, this.root);
+
+  @override
+  final _Room room;
+  final TimelineEvent root;
+
+  @override
+  Client get client => room.client;
+
+  @override
+  final matrix.Timeline matrixTimeline = _SdkTimeline();
+
+  @override
+  List<TimelineEvent> get events => [root];
+
+  @override
+  bool canDeleteEvent(TimelineEvent event) => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _NoEngine implements TranslationEngine {
+  @override
+  bool get available => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+final _translation = MessageTranslation(
+  engine: _NoEngine(),
+  android: false,
+  systemLanguage: () => "en",
+);
+
+/// Each test has its own room: what you replied in is kept per room.
+_Timeline _mainTimeline(String roomId) {
+  final room = _Room(_Client(_Sdk()), roomId);
+  final root = MatrixTimelineEventMessage(
+    matrix.Event.fromJson(_storedRoot(roomId), room.matrixRoom),
+    client: room.client,
+  );
+  return _Timeline(room, root);
+}
+
+TimelineEventMenu _menu(_Timeline timeline, BuildContext context) =>
+    TimelineEventMenu(
+      timeline: timeline,
+      event: timeline.root,
+      translation: _translation,
+      rooms: RoomTranslation(translation: _translation),
+      context: context,
+    );
+
+/// A message row with the menu on right-click, its items made the way the
+/// timeline's right-click menu makes them (timeline_view_entry.dart).
+Widget _row(_Timeline timeline) => MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => ContextMenu(
+            itemsBuilder: () => [
+              for (final i in _menu(timeline, context).secondaryActions)
+                ContextMenuItem(
+                  text: i.name,
+                  icon: i.icon,
+                  onPressed: () => i.action?.call(context),
+                ),
+            ],
+            items: const [],
+            child: const SizedBox(
+              key: ValueKey("row"),
+              width: 400,
+              height: 40,
+              child: Text("Movie night on Friday?"),
+            ),
+          ),
+        ),
+      ),
+    );
+
+Future<void> _openMenu(WidgetTester tester) async {
+  await tester.tap(
+    find.byKey(const ValueKey("row")),
+    buttons: kSecondaryMouseButton,
+  );
+  await tester.pumpAndSettle();
+}
+
+Map<String, Object?>? _written(Map<String, Object?> body) =>
+    ((body["threads"] as Map?)?[_rootId] as Map?)?.cast<String, Object?>();
+
+void main() {
+  setUp(() async {
+    // ignore: invalid_use_of_visible_for_testing_member
+    SharedPreferences.setMockInitialValues({});
+    await preferences.init();
+  });
+
+  testWidgets(
+      "a thread you replied in says Unfollow thread in the root's menu "
+      "though the stored root is stale", (tester) async {
+    final timeline = _mainTimeline("!replied:example.org");
+    final room = timeline.room;
+    // Your reply arrives in sync (you replied, then closed the thread).
+    await ThreadReplyTracker(room.client.sdk).onEvent(
+      matrix.Event.fromJson({
+        "type": "m.room.message",
+        "event_id": r"$mine",
+        "room_id": room.identifier,
+        "sender": _me,
+        "origin_server_ts": DateTime.now().millisecondsSinceEpoch,
+        "content": {
+          "msgtype": "m.text",
+          "body": "I'll bring snacks",
+          "m.relates_to": {"rel_type": "m.thread", "event_id": _rootId},
+        },
+      }, room.matrixRoom),
+    );
+    await tester.pumpWidget(_row(timeline));
+    await _openMenu(tester);
+    expect(find.text("Unfollow thread"), findsOneWidget);
+    expect(find.text("Follow thread"), findsNothing);
+  });
+
+  testWidgets("Follow thread in the message menu follows, then unfollows",
+      (tester) async {
+    final timeline = _mainTimeline("!follow:example.org");
+    final sdk = timeline.room.client.sdk;
+    await tester.pumpWidget(_row(timeline));
+    await _openMenu(tester);
+    await tester.tap(find.text("Follow thread"));
+    await tester.pumpAndSettle();
+    expect(sdk.writes, hasLength(1));
+    expect(_written(sdk.writes.single)?["follow"], isTrue);
+    expect(_written(sdk.writes.single)?["automatic"], isNull);
+
+    await _openMenu(tester);
+    await tester.tap(find.text("Unfollow thread"));
+    await tester.pumpAndSettle();
+    expect(sdk.writes, hasLength(2));
+    expect(_written(sdk.writes.last)?["follow"], isFalse);
+  });
+}
