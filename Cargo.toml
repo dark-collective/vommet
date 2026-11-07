@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = ["rust/rust", "rust/voice"]
+
+# The voice filter's DSP is far too slow unoptimised to keep up with a call,
+# even in debug builds.
+[profile.dev.package.vommet_voice]
+opt-level = 3
+
+[profile.dev.package.realfft]
+opt-level = 3
+
+[profile.dev.package.rustfft]
+opt-level = 3
