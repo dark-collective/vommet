@@ -1,0 +1,35 @@
+{
+  "notification": {
+    "content": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "ciphertext": "AwgAEpABifrdf8gpCrq3lgrT/q6i6kMv4najHUTYy/v8bntbi2ez9ll69p0eI2gVs4/t+t4lzApN3uRxJxZ1S0kWuJKHNFwh921632Htw62Xa8ghtR3izu2z7pUJgasjHfaQXqDlgm3Wbty6Xe6quLBPLrozK5jvvdAjrVINUP63RlZm2VKTn0dhBpAnqGnkVhMj4mVw3ZIn9B8rX63emjc4l4r+mHrKsaVVuHtZ6rg8KH1ctfLQVZy2B1yG7AP+sMVOfPhB69NSyPdkR1KtMyyBG/lkU4sXRdM1yqwO",
+      "device_id": "ZNDYDKGPCF",
+      "sender_key": "5YnYF/CgpS2zPj2EBUfXZqpFRRLyfDC5D/omRsPQVT8",
+      "session_id": "3aJQvzfwUAXmAYHN/kCN17aZ+rCzNRBg62wmx5Hz5Us"
+    },
+    "counts": {
+      "unread": 6
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "pushkey": "pushkey-full",
+        "pushkey_ts": 1700000000,
+        "tweaks": {
+          "highlight": false,
+          "sound": "default"
+        }
+      }
+    ],
+    "event_id": "$event-e2ee-dm",
+    "id": "$event-e2ee-dm",
+    "prio": "high",
+    "room_id": "!room-e2ee:example.org",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "type": "m.room.encrypted"
+  }
+}
