@@ -1,0 +1,19 @@
+{
+  "notification": {
+    "event_id": "$event-e2ee-dm",
+    "room_id": "!room-e2ee:example.org",
+    "counts": {
+      "unread": 17
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.eventidonly",
+        "pushkey": "pushkey-event_id_only",
+        "data": {
+          "format": "event_id_only",
+          "local_client_id": "client-alice"
+        }
+      }
+    ]
+  }
+}
