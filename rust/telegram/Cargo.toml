@@ -1,0 +1,23 @@
+[package]
+name = "vommet_telegram"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only Telegram login that lists a user's sticker and emoji packs, then signs out (Vommet issue 801)"
+license = "AGPL-3.0-only"
+
+[lib]
+crate-type = ["rlib"]
+
+# Pinned exactly: Vommet calls the raw API, which grammers doesn't keep
+# stable across minor versions.
+[dependencies]
+grammers-crypto = "=0.11.0"
+grammers-mtsender = { version = "=0.11.0", default-features = false }
+# No sqlite storage: the session must never touch the disk.
+grammers-session = { version = "=0.11.0", default-features = false }
+grammers-tl-types = "=0.11.0"
+base64 = "0.22.1"
+log = "0.4.29"
+tokio = { version = "1.50.0", features = ["rt", "net", "time", "macros", "sync"] }
+zeroize = "1.8"
+getrandom = "0.4.3"
