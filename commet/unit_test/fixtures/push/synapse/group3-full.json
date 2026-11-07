@@ -1,0 +1,32 @@
+{
+  "notification": {
+    "content": {
+      "body": "a three-member message",
+      "msgtype": "m.text"
+    },
+    "counts": {
+      "unread": 6
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "pushkey": "pushkey-full",
+        "pushkey_ts": 1700000000,
+        "tweaks": {
+          "highlight": false
+        }
+      }
+    ],
+    "event_id": "$event-group3",
+    "id": "$event-group3",
+    "prio": "low",
+    "room_id": "!room-group3:example.org",
+    "room_name": "Group3 room",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "type": "m.room.message"
+  }
+}
