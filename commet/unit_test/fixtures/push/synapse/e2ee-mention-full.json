@@ -1,0 +1,35 @@
+{
+  "notification": {
+    "content": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "ciphertext": "AwgBEuACFQDp3BVZ69E2eVoalWZtqhson8KGTkTDPz67seBQe8Ivg86bja5A32ELsevNARZUAa5vnsrfJ3mh9jO4k8QbKHOnBzBTedklbDRFXE1zBKJFpy7kEJTdHgjeY1inDGnGxXXN6dM/4MqcxqByRxVkZj5s/9WCQVUIxrZKiYuKhNNdrSQYCmSC5hEsomQ5OWzLo+tSSWoK1h6L7AwdIvxCGPPGhxS4cN7cZfO8SuzAu+r/8k7pInf35JP+FDivEGvi5ht62NltIJf7WLFJXU4EZWc68OKAC2TgoRIIG0MZL6SHdPFXghf6/QyZ5EivBX8ZuWUJWO44cnwP8JgLRZKcIQzYbLMxciu1FGN6wehaRunNqRsdAB5wvluijPrFLsYu7Ah6DnT9VoDlFxbitW9/GIVvPtCfFe9Mi1xvKG0Ebo2ioTKr5zzsgV3d7iGyJY+Jda/C3bdMJNb/iZQukzDPaT9EoeDwe28hAxOunpQ59fgvPr3Kdw6AAvojIxrIOva25mD8qRhwD5jqP11JNLVWQL2+aV3092MxiskZA6bAEqUWlbCZTd+iAQ",
+      "device_id": "ZNDYDKGPCF",
+      "sender_key": "5YnYF/CgpS2zPj2EBUfXZqpFRRLyfDC5D/omRsPQVT8",
+      "session_id": "3aJQvzfwUAXmAYHN/kCN17aZ+rCzNRBg62wmx5Hz5Us"
+    },
+    "counts": {
+      "unread": 6
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "pushkey": "pushkey-full",
+        "pushkey_ts": 1700000000,
+        "tweaks": {
+          "highlight": false,
+          "sound": "default"
+        }
+      }
+    ],
+    "event_id": "$event-e2ee-mention",
+    "id": "$event-e2ee-mention",
+    "prio": "high",
+    "room_id": "!room-e2ee:example.org",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "type": "m.room.encrypted"
+  }
+}
