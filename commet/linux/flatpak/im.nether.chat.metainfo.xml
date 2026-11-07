@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>im.nether.chat</id>
+  <name>Vomit</name>
+  <summary>Matrix client fork for people who keep ending up back on Discord</summary>
+  <developer_name>Nether (fork of Commet by Airyz)</developer_name>
+  <url type="homepage">https://nether.codes/robocub/vomit</url>
+  <metadata_license>CC-BY-SA-4.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <description>
+    <p>Vomit is a downstream, LLM-assisted fork of the Commet Matrix client, built for quick iteration on the papercuts that keep people on Discord and off Matrix, with compatibility with the Nether voice bridges as a priority.</p>
+  </description>
+  <launchable type="desktop-id">im.nether.chat.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="{{VERSION_TAG}}" />
+  </releases>
+</component>
