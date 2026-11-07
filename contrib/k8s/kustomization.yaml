@@ -1,0 +1,19 @@
+# Vommet web on Kubernetes: `kubectl apply -k contrib/k8s` (see README.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: vommet-web
+    includeSelectors: true
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  # - ingress.yaml   # set your host in ingress.yaml first
+
+images:
+  - name: ghcr.io/dark-collective/vommet-web
+    # Moving tag of the newest testing release. Pin a release instead
+    # (e.g. testing-2026-10-26d) to choose when you upgrade.
+    newTag: testing
