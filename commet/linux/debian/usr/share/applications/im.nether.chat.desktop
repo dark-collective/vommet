@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Vomit (codename)
+Exec=/usr/lib/im.nether.chat/commet %U
+Terminal=false
+Type=Application
+Icon=commet-desktop
+StartupWMClass=Commet
+Comment=Your space to connect!
+Categories=Network;InstantMessaging;Chat;
+MimeType=x-scheme-handler/commetchat;
