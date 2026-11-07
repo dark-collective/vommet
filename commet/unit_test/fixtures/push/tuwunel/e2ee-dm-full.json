@@ -1,0 +1,31 @@
+{
+  "notification": {
+    "event_id": "$event-e2ee-dm",
+    "room_id": "!room-e2ee:example.org",
+    "type": "m.room.encrypted",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "content": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "ciphertext": "AwgAEpABRRPkbS6BxTSkLEA3/GOd4nzagWNXx0R6gjMZeT1ImMGvYe+5meltEQ3s/3cJbZVskG3mQB1kyZzlD2hA2HsZrVevnjObarmz2K+/mFAucBVfaMMd0tE4RS1pS9rOH10eIWaRSOOtqpKSueaS0fckwlDkYJtYsAnJwjjd50kevcx8xx0ESlvvjKVJLtpA1h88YXsPNHQzvv32PwML6gDT+5c1PxTTx9DaeDmFVBeXB+TmiinkoIckaocG/xmFag9dwQJE7JxbIsSjzLlEpsnHABQA5lbep+oA",
+      "device_id": "yK0vwDYKMq",
+      "sender_key": "yaC4R43+Oyonf+ZDFIjLcdWng1vY1hUWK3E0ew3xmVc",
+      "session_id": "/rav+E5HUYSHmF3nUGuzJBn5f6c6uVj4zS/ZJ4BUD1M"
+    },
+    "counts": {
+      "unread": 17
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "pushkey": "pushkey-full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "tweaks": {
+          "sound": "default"
+        }
+      }
+    ]
+  }
+}
