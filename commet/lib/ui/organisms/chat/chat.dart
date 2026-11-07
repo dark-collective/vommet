@@ -1,0 +1,1314 @@
+import 'package:commet/ui/organisms/in_chat_search/in_chat_search.dart';
+import 'package:commet/client/components/scheduled_messages/scheduled_messages.dart';
+import 'package:commet/ui/molecules/desktop_attachment_tray.dart';
+import 'package:commet/client/components/scheduled_messages/scheduled_edit_handoff.dart';
+import 'dart:async';
+import 'package:commet/utils/relistenable_stream_controller.dart';
+
+import 'package:commet/telemetry/telemetry.dart';
+import 'package:commet/telemetry/voice_message_telemetry.dart';
+import 'package:commet/client/attachment.dart';
+import 'package:commet/utils/attachment_prepare.dart';
+import 'package:commet/utils/voice_message.dart';
+import 'package:commet/client/client.dart';
+import 'package:commet/client/components/account_switch_prefix/account_switch_prefix.dart';
+import 'package:commet/client/components/command/command_component.dart';
+import 'package:commet/client/components/photo_album_room/photo_album_room_component.dart';
+import 'package:commet/utils/reply_navigation.dart';
+import 'package:commet/client/components/emoticon/emoticon.dart';
+import 'package:commet/client/components/emoticon/emoticon_component.dart';
+import 'package:commet/client/components/gif/gif_component.dart';
+import 'package:commet/client/components/gif/gif_search_result.dart';
+import 'package:commet/client/components/read_receipts/read_receipt_component.dart';
+import 'package:commet/client/components/threads/thread_component.dart';
+import 'package:commet/ui/molecules/room_timeline_widget/timeline_keyboard_scroll.dart';
+import 'package:commet/client/components/typing_indicators/typing_indicator_component.dart';
+import 'package:commet/client/timeline_events/timeline_event.dart';
+import 'package:commet/client/timeline_events/timeline_event_emote.dart';
+import 'package:commet/client/timeline_events/timeline_event_message.dart';
+import 'package:commet/client/timeline_events/timeline_event_sticker.dart';
+
+import 'package:commet/debug/log.dart';
+import 'package:commet/utils/file_transfer.dart';
+import 'package:commet/main.dart';
+import 'package:commet/ui/molecules/keyboard_swipe_dismiss.dart';
+import 'package:commet/ui/organisms/add_widget_dialog/add_widget_dialog.dart';
+import 'package:commet/ui/organisms/attachment_processor/attachment_processor.dart';
+import 'package:commet/client/matrix/matrix_client.dart';
+import 'package:commet/client/matrix/timeline_events/matrix_timeline_event.dart';
+import 'package:commet/utils/text_utils.dart';
+import 'package:commet/utils/upload_size_limit.dart';
+import 'package:commet/ui/atoms/redaction_scope.dart';
+import 'package:commet/ui/navigation/adaptive_dialog.dart';
+import 'package:commet/ui/organisms/chat/chat_view.dart';
+import 'package:commet/ui/organisms/chat/prefixed_sends.dart';
+import 'package:commet/utils/share_intake.dart';
+import 'package:commet/utils/custom_uri.dart';
+import 'package:commet/utils/debounce.dart';
+import 'package:commet/utils/error_utils.dart';
+import 'package:commet/utils/event_bus.dart';
+import 'package:commet/client/matrix/forwarding/matrix_forwarding.dart';
+import 'package:commet/ui/organisms/forward_message/pending_forward.dart';
+import 'package:commet/ui/organisms/chat/composer_link_preview.dart';
+import 'package:commet/utils/message_drafts.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:exif/exif.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:commet/client/matrix/timeline_events/matrix_edit_text.dart';
+
+import 'package:tiamat/tiamat.dart' as tiamat;
+
+class Chat extends StatefulWidget {
+  const Chat(this.room,
+      {this.threadId,
+      this.isBubble = false,
+      this.focusMessageInput = false,
+      super.key});
+  final Room room;
+  final String? threadId;
+  final bool isBubble;
+
+  /// Vommet issue 322: focus the message box once it's shown, whatever the
+  /// "Autofocus Message Input" setting (used by "Reply in Thread").
+  final bool focusMessageInput;
+  @override
+  State<Chat> createState() => ChatState();
+}
+
+enum EventInteractionType {
+  reply,
+  edit,
+}
+
+class ChatState extends State<Chat> {
+  Room get room => widget.room;
+  Timeline? _timeline;
+
+  Timeline? get timeline => _timeline;
+
+  /// Vommet composer round 6: the message box fills the chat (phones).
+  final ValueNotifier<bool> composerExpanded = ValueNotifier(false);
+
+  // Vommet: "Jump to latest" can replace this room's timeline with a live
+  // one; show that one from here on (selection, image viewer, read marking).
+  StreamSubscription<Timeline>? liveTimelineSubscription;
+
+  // Cancelled here rather than in dispose (always preceded by deactivate),
+  // resumed if the chat is moved in the tree.
+  @override
+  void deactivate() {
+    liveTimelineSubscription?.cancel();
+    liveTimelineSubscription = null;
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    liveTimelineSubscription ??=
+        EventBus.liveTimelineLoaded.stream.listen(onLiveTimelineLoaded);
+  }
+
+  void onLiveTimelineLoaded(Timeline timeline) {
+    if (isThread || timeline.room != room || timeline == _timeline) return;
+    _holdRoomTimeline(timeline);
+    setState(() {
+      _timeline = timeline;
+    });
+  }
+
+  /// Vommet: the room timeline this chat shows, or a thread view builds on.
+  /// It is held so it stays open while shown, and closes once no view shows
+  /// it (see [Room.holdTimeline]).
+  Timeline? _heldRoomTimeline;
+
+  /// [held]: [Room.getTimeline] already holds it for this chat.
+  void _holdRoomTimeline(Timeline? timeline, {bool held = false}) {
+    final old = _heldRoomTimeline;
+    if (identical(old, timeline)) return;
+    if (timeline != null && !held) room.holdTimeline(timeline, this);
+    _heldRoomTimeline = timeline;
+    if (old != null) room.releaseTimeline(old, this);
+  }
+
+  ThreadsComponent? threadsComponent;
+
+  String get labelChatPageFileTooLarge => Intl.message(
+      "This file is too large to upload!",
+      desc:
+          "Text that is shown when the user attempts to upload a file that is greater than the allowed size",
+      name: "labelChatPageFileTooLarge");
+
+  String get labelChatPageFileTooLargeTitle => Intl.message(
+      "Max file size exceeded",
+      desc:
+          "Title for the dialog that is shown when the user attempts to upload a file that is greater than the allowed size",
+      name: "labelChatPageFileTooLargeTitle");
+
+  String labelChatPageFileTooLargeNamed(
+          String file, String size, String server, String limit) =>
+      Intl.message("$file is $size. $server accepts files up to $limit.",
+          args: [file, size, server, limit],
+          desc:
+              "Shown when the user attempts to upload a file that is greater than the homeserver's upload limit: the file's name and size, the homeserver's name and its limit",
+          name: "labelChatPageFileTooLargeNamed");
+
+  String labelChatPageFileTooLargeUnnamed(
+          String size, String server, String limit) =>
+      Intl.message("This file is $size. $server accepts files up to $limit.",
+          args: [size, server, limit],
+          desc:
+              "Shown when the user attempts to upload a file without a name that is greater than the homeserver's upload limit: the file's size, the homeserver's name and its limit",
+          name: "labelChatPageFileTooLargeUnnamed");
+
+  bool processing = false;
+
+  final GlobalKey<TimelineKeyboardScrollState> timelineScrollKey = GlobalKey();
+
+  late final PrefixedSends prefixedSends =
+      PrefixedSends((eventId) => _timeline?.tryGetEvent(eventId) != null);
+  List<PendingFileAttachment> attachments = List.empty(growable: true);
+
+  EventInteractionType? interactionType;
+  TimelineEvent? interactingEvent;
+
+  // Vommet issue 322: while the message box listens, "Reply in Thread" on
+  // this open thread focuses it too.
+  // Vommet issue 485: both can be listened to again by a new message box.
+  late final RelistenableStreamController<void> onFocusMessageInput = () {
+    StreamSubscription? replies;
+    late final RelistenableStreamController<void> requests;
+    requests = RelistenableStreamController<void>(
+        onListen: () => replies = EventBus.replyInThread.stream
+            .where((rootEventId) => isThread && rootEventId == threadId)
+            .listen((_) => requests.add(null)),
+        onCancel: () => replies?.cancel());
+    return requests;
+  }();
+  final RelistenableStreamController<List<PendingFileAttachment>> sharedFiles =
+      RelistenableStreamController();
+  final RelistenableStreamController<String> setMessageInputText =
+      RelistenableStreamController();
+
+  StreamSubscription? onLinkedSubscription;
+  StreamSubscription? onFileDroppedSubscription;
+  StreamSubscription? onShareDeliveredSubscription;
+
+  /// A message waiting in this room's message box to be forwarded.
+  PendingForward? pendingForward;
+  StreamSubscription? pendingForwardSubscription;
+
+  GifComponent? gifs;
+  RoomEmoticonComponent? emoticons;
+  ReadReceiptComponent? receipts;
+  TypingIndicatorComponent? typingIndicators;
+  List<StreamSubscription> emoticonSubscriptions = [];
+
+  Debouncer typingStatusDebouncer =
+      Debouncer(delay: const Duration(seconds: 5));
+  DateTime lastSetTyping = DateTime.fromMicrosecondsSinceEpoch(0);
+
+  static final MessageDrafts<TimelineEvent> drafts = MessageDrafts();
+
+  static final Map<(Client, String), ChatState> _scheduledEditTargets = {};
+  StreamSubscription? scheduledEditSubscription;
+
+  bool get acceptsScheduledEdit =>
+      inputText.trim().isEmpty &&
+      attachments.isEmpty &&
+      interactingEvent == null &&
+      pendingForward == null;
+
+  /// Never overwrite the draft in an existing or unopened composer.
+  static bool canAcceptScheduledEdit(Room room) {
+    if (ScheduledEditHandoff.contains(room)) return false;
+    final open = _scheduledEditTargets[(room.client, room.identifier)];
+    if (open != null) return open.acceptsScheduledEdit;
+    return drafts.get(MessageDrafts.keyFor(
+                room.client.identifier, room.identifier)) ==
+            null &&
+        PendingForwards.get(room) == null;
+  }
+
+  static void startScheduledEdit(Room room, String text) {
+    ScheduledEditHandoff.put(room, text);
+    // The user explicitly chose this account and Edit in Settings. Show
+    // that account for now, but keep the saved account filter as it was.
+    final filter = preferences.filterClient.value;
+    if (filter != null && filter != room.client.identifier) {
+      EventBus.setFilterClient.add(room.client);
+    }
+    EventBus.doOpenRoom(room.identifier, clientId: room.client.identifier);
+  }
+
+  void claimScheduledEdit() {
+    if (!mounted ||
+        !ScheduledEditHandoff.contains(room) ||
+        !ScheduledMessages.available(room.client) ||
+        !room.client.isLoggedIn() ||
+        !acceptsScheduledEdit) return;
+    final text = ScheduledEditHandoff.take(room);
+    if (text == null) return;
+    inputText = text;
+    setMessageInputText.add(text);
+  }
+
+  String get draftKey =>
+      MessageDrafts.keyFor(room.client.identifier, room.identifier,
+          threadId: widget.threadId);
+
+  /// What the message box held when this chat was opened, restored from the
+  /// room's draft.
+  String? initialInputText;
+  String inputText = "";
+
+  /// Vommet issue 676: the preview for the link in the message box.
+  final ComposerLinkPreview linkPreview = ComposerLinkPreview();
+
+  bool get isThread => widget.threadId != null;
+
+  String? get threadId => widget.threadId;
+
+  bool get isBubble => widget.isBubble;
+
+  /// Vommet: the composer's emoji and sticker lists are read when the chat
+  /// builds, so rebuild when this room's packs or your account's packs
+  /// (favourites, sticker rooms) change. Upstream only picked up new packs
+  /// after a restart.
+  void listenForEmoticonChanges() {
+    final account = room.client.getComponent<EmoticonComponent>();
+    for (final stream in [emoticons?.onStateChanged, account?.onStateChanged]) {
+      if (stream == null) continue;
+      emoticonSubscriptions.add(stream.listen((_) {
+        if (mounted) setState(() {});
+      }));
+    }
+  }
+
+  @override
+  void initState() {
+    Log.i(
+        "Initializing room timeline for: ${widget.room.displayName} ${widget.threadId ?? ""}");
+    _onScreen
+      ..removeWhere((c) => !c.mounted)
+      ..add(this);
+
+    // Vommet issue 621: on iOS, dragging down onto the keyboard hides it.
+    KeyboardSwipeDismiss.attach(this);
+
+    onFileDroppedSubscription =
+        EventBus.onFileDropped.stream.listen(onFileDropped);
+
+    if (widget.focusMessageInput) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) onFocusMessageInput.add(null);
+      });
+    }
+
+    gifs = room.client.getComponent<GifComponent>();
+    emoticons = room.getComponent<RoomEmoticonComponent>();
+    threadsComponent = room.client.getComponent<ThreadsComponent>();
+    receipts = room.getComponent<ReadReceiptComponent>();
+    typingIndicators = room.getComponent<TypingIndicatorComponent>();
+    listenForEmoticonChanges();
+
+    onLinkedSubscription = CustomURI.onLinked.listen(onLinked);
+    liveTimelineSubscription =
+        EventBus.liveTimelineLoaded.stream.listen(onLiveTimelineLoaded);
+
+    if (!isThread) {
+      // Vommet: leaving the room with search open lets its timeline go.
+      InChatSearch.of(room).attachChat();
+      pendingForward = PendingForwards.get(room);
+      pendingForwardSubscription =
+          PendingForwards.onChanged.listen(onPendingForwardChanged);
+    }
+
+    final draft = drafts.get(draftKey);
+    if (draft != null &&
+        (preferences.experimentMessageDrafts.value ||
+            draft.editBaseline != null)) {
+      _editBaseline = draft.editBaseline;
+      _preserveHistoryEdit = _editBaseline != null;
+      initialInputText = draft.text;
+      inputText = draft.text;
+      attachments.addAll(draft.attachments);
+      if (draft.relation case EventInteractionType type) {
+        interactingEvent = draft.relatedEvent;
+        interactionType = interactingEvent != null ? type : null;
+      }
+    }
+
+    if (!isThread && !isBubble) {
+      _scheduledEditTargets[(room.client, room.identifier)] = this;
+      scheduledEditSubscription = ScheduledEditHandoff.changed.listen((client) {
+        if (identical(client, room.client)) claimScheduledEdit();
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => claimScheduledEdit());
+    }
+
+    if (widget.threadId != null && threadsComponent != null) {
+      loadThreadTimeline();
+    } else {
+      if (room.timeline != null) {
+        _timeline = room.timeline;
+        _holdRoomTimeline(_timeline);
+      } else {
+        loadTimeline();
+      }
+    }
+
+    // Vommet: content shared from another app (Android share sheet).
+    if (widget.threadId == null && !widget.isBubble) {
+      onShareDeliveredSubscription = ShareIntake.onDelivered.listen((r) {
+        if (r.identifier == room.identifier) claimShare();
+      });
+      claimShare();
+    }
+
+    super.initState();
+  }
+
+  String? get initialEventId =>
+      preferences.openRoomsAtLastReadMessage.value ? room.lastRead : null;
+
+  Future<void> loadTimeline() async {
+    ErrorUtils.tryRun(context, () async {
+      var t =
+          await room.getTimeline(contextEventId: initialEventId, holder: this);
+      // Vommet: the room may have closed while its timeline loaded.
+      if (!mounted) {
+        room.releaseTimeline(t, this);
+        return;
+      }
+      _holdRoomTimeline(t, held: true);
+      setState(() {
+        _timeline = t;
+      });
+    }, title: "Error loading timeline");
+  }
+
+  Future<void> loadThreadTimeline() async {
+    ErrorUtils.tryRun(context, () async {
+      Timeline? timeline = room.timeline;
+      if (timeline != null) {
+        _holdRoomTimeline(timeline);
+      } else {
+        timeline = await room.getTimeline(
+            contextEventId: initialEventId, holder: this);
+        if (!mounted) {
+          room.releaseTimeline(timeline, this);
+          return;
+        }
+        _holdRoomTimeline(timeline, held: true);
+      }
+
+      var threadTimeline = await threadsComponent!.getThreadTimeline(
+          roomTimeline: timeline, threadRootEventId: widget.threadId!);
+      if (!mounted) return;
+      setState(() {
+        _timeline = threadTimeline;
+      });
+      // Vommet: the thread's first page loads before its view listens for
+      // new events, so opening it marks it read here (a no-op unless "Read
+      // state per thread" is on).
+      final newest = threadTimeline?.events.firstOrNull;
+      if (newest != null &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        threadTimeline!.markAsRead(newest);
+      }
+    }, title: "Error loading thread timeline");
+  }
+
+  void saveDraft() {
+    final editBaseline = _preserveHistoryEdit &&
+            interactionType == EventInteractionType.edit &&
+            _editBaseline?.trim() != inputText.trim()
+        ? _editBaseline
+        : null;
+    if (preferences.experimentMessageDrafts.value || editBaseline != null) {
+      drafts.set(
+          draftKey,
+          MessageDraft(inputText,
+              relatedEvent: interactingEvent,
+              relation: interactionType,
+              editBaseline: editBaseline,
+              attachments: List.of(attachments)));
+    } else {
+      drafts.clear(draftKey);
+    }
+  }
+
+  @override
+  void dispose() {
+    // After the message box's own end-of-frame reset (it is disposed first).
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => composerExpanded.dispose());
+    scheduledEditSubscription?.cancel();
+    final targetKey = (room.client, room.identifier);
+    if (identical(_scheduledEditTargets[targetKey], this)) {
+      _scheduledEditTargets.remove(targetKey);
+    }
+    pendingForwardSubscription?.cancel();
+    if (!isThread) InChatSearch.existing(room)?.detachChat();
+    linkPreview.dispose();
+    prefixedSends.dispose();
+    saveDraft();
+
+    Log.i(
+        "Disposing room timeline for: ${widget.room.displayName} ${widget.threadId ?? ""}");
+    for (final sub in emoticonSubscriptions) {
+      sub.cancel();
+    }
+
+    onLinkedSubscription?.cancel();
+    onShareDeliveredSubscription?.cancel();
+    onFileDroppedSubscription?.cancel();
+    _timeline?.endVisit();
+    _holdRoomTimeline(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Vommet: Page Up/Down, Home/End scroll the timeline (Vommet issue 481).
+    return TimelineKeyboardScroll(
+        key: timelineScrollKey, child: ChatView(this));
+  }
+
+  /// Vommet issue 1022: the timeline only follows new messages from its
+  /// bottom, so whatever is sent from here brings it down to the latest ones,
+  /// or the message wouldn't be seen.
+  void showLatestMessages() => timelineScrollKey.currentState?.jumpToLatest();
+
+  Future<void> addAttachment(PendingFileAttachment attachment) async {
+    if (!await checkAttachmentSize(attachment) || !mounted) return;
+
+    setState(() {
+      attachments.add(attachment);
+    });
+  }
+
+  /// Vommet issue 410: false (after telling the user, with the file's size and
+  /// the homeserver's limit) when [attachment] is over the upload limit.
+  Future<bool> checkAttachmentSize(PendingFileAttachment attachment) async {
+    final client = room.client;
+    final limit = client is MatrixClient
+        ? await client.fetchMaxFileSize()
+        : client.maxFileSize;
+    if (!UploadSizeLimit.exceeds(attachment.size, limit)) return true;
+    if (!mounted) return false;
+
+    final size = TextUtils.readableFileSize(attachment.size!);
+    final max = TextUtils.readableFileSize(limit!);
+    final server = UploadSizeLimit.serverOf(room.client.self?.identifier);
+    final name = attachment.name;
+    final text = server == null
+        ? labelChatPageFileTooLarge
+        : name == null || name.isEmpty
+            ? labelChatPageFileTooLargeUnnamed(size, server, max)
+            : labelChatPageFileTooLargeNamed(name, size, server, max);
+
+    AdaptiveDialog.show(context, builder: (_) {
+      return SizedBox(
+          height: 100, child: Center(child: tiamat.Text.label(text)));
+    }, title: labelChatPageFileTooLargeTitle);
+    return false;
+  }
+
+  void removeAttachment(PendingFileAttachment attachment) {
+    setState(() {
+      attachments.remove(attachment);
+    });
+  }
+
+  void moveAttachment(PendingFileAttachment file, int position) {
+    if (processing) return;
+    final index = attachments.indexOf(file);
+    if (index < 0 || position < 0 || position >= attachments.length) return;
+    setState(() {
+      attachments.removeAt(index);
+      attachments.insert(position, file);
+    });
+  }
+
+  /// Sends a recorded voice message to this room (or thread), as a reply
+  /// when replying. Returns false if sending failed.
+  Future<bool> sendVoiceMessage(VoiceRecording recording,
+      {Client? overrideClient}) async {
+    var targetRoom = room;
+    if (overrideClient != null) {
+      final newRoom = overrideClient.getRoom(targetRoom.identifier);
+      if (newRoom == null) {
+        Log.e(
+            "Failed to find room for override client; voice message not sent");
+        VoiceMessageTelemetry.sent(
+            ms: 0, bytes: recording.bytes.length, noRoom: true);
+        return false;
+      }
+      targetRoom = newRoom;
+    }
+
+    final replyTo =
+        interactionType == EventInteractionType.reply ? interactingEvent : null;
+    setInteractingEvent(null);
+    showLatestMessages();
+
+    final clock = Stopwatch()..start();
+    try {
+      await targetRoom.sendVoiceMessage(recording,
+          inReplyTo: replyTo,
+          threadRootEventId: isThread ? widget.threadId : null);
+      VoiceMessageTelemetry.sent(
+          ms: clock.elapsedMilliseconds,
+          bytes: recording.bytes.length,
+          encrypted: targetRoom.isE2EE);
+      return true;
+    } catch (e, s) {
+      Log.onError(e, s, content: "Failed to send voice message");
+      VoiceMessageTelemetry.sent(
+          ms: clock.elapsedMilliseconds,
+          bytes: recording.bytes.length,
+          encrypted: targetRoom.isE2EE,
+          error: e);
+      return false;
+    }
+  }
+
+  void sendMessage(String message, {Client? overrideClient}) async {
+    if (processing || _pendingEditStep != null) return;
+    final batch = List<PendingFileAttachment>.of(attachments);
+    final preparing = batch.map((file) => file.snapshotForSend()).toList();
+    inputText = "";
+    drafts.clear(draftKey);
+
+    // Vommet issue 722: an edit that changes nothing sends nothing, so the
+    // message isn't marked "Edited"; just leave edit mode.
+    if (interactionType == EventInteractionType.edit &&
+        attachments.isEmpty &&
+        interactingEvent != null &&
+        editText(interactingEvent!)?.trim() == message.trim()) {
+      typingIndicators?.setTypingStatus(false);
+      setInteractingEvent(null);
+      setMessageInputText.add("");
+      return;
+    }
+
+    // Vommet issue 676: taken now, before anything new is typed.
+    final urlPreviews = interactionType == EventInteractionType.edit
+        ? null
+        : linkPreview.takeForSend(message);
+
+    setState(() {
+      processing = true;
+    });
+
+    // Vommet issue 838: pictures from the send screen are made smaller or
+    // lose their hidden info now, after Send (before the location check).
+    for (var i = 0; i < preparing.length; i++) {
+      if (AttachmentPrepare.wanted(preparing[i])) {
+        preparing[i] = await AttachmentPrepare.prepare(preparing[i]);
+      }
+    }
+
+    for (var file in preparing) {
+      file.telemetryMs["_start"] = Telemetry.sinceStart;
+      var clock = Stopwatch()..start();
+      await file.resolve();
+      file.telemetryMs["resolve_ms"] = clock.elapsedMilliseconds;
+      clock.reset();
+      var exif = await readExifFromBytes(file.data!);
+      file.telemetryMs["exif_ms"] = clock.elapsedMilliseconds;
+
+      if (exif.keys.any((e) => e.toLowerCase().contains("gps"))) {
+        // ignore: use_build_context_synchronously
+        var confirmation = await AdaptiveDialog.confirmation(context,
+            title: file.name ?? "File",
+            confirmationText: "Send File",
+            cancelText: "Don't send file",
+            dangerous: true,
+            prompt:
+                "Location data was detected in file '${file.name}', are you sure you want to send?");
+
+        if (confirmation != true) {
+          setState(() {
+            processing = false;
+          });
+          return;
+        }
+      }
+    }
+
+    var targetRoom = room;
+    var targetThread = threadsComponent;
+
+    if (overrideClient != null) {
+      var newRoom = overrideClient.getRoom(targetRoom.identifier);
+      if (newRoom != null) {
+        targetRoom = newRoom;
+        targetThread = targetRoom.client.getComponent<ThreadsComponent>();
+        Log.d("Overriding room for client: ${overrideClient}");
+      } else {
+        Log.e(
+            "Failed to find correct room to send event for override client. Cancelling");
+
+        setState(() {
+          processing = false;
+        });
+        return;
+      }
+    }
+
+    var processedAttachments = await targetRoom.processAttachments(preparing);
+
+    setState(() {
+      processing = false;
+    });
+
+    var component = targetRoom.client.getComponent<CommandComponent>();
+    Future<Object?>? sent;
+
+    final inReplyTo =
+        interactionType == EventInteractionType.reply ? interactingEvent : null;
+    final replaceEvent =
+        interactionType == EventInteractionType.edit ? interactingEvent : null;
+
+    Future<TimelineEvent?> send(List<ProcessedAttachment> files) => isThread
+        ? targetThread!.sendMessage(
+            threadRootEventId: widget.threadId!,
+            room: targetRoom,
+            message: message,
+            inReplyTo: inReplyTo,
+            replaceEvent: replaceEvent,
+            processedAttachments: files,
+            urlPreviews: urlPreviews)
+        : targetRoom.sendMessage(
+            message: message,
+            inReplyTo: inReplyTo,
+            replaceEvent: replaceEvent,
+            processedAttachments: files,
+            urlPreviews: urlPreviews);
+
+    if (component?.isExecutable(message) == true) {
+      doCommand(component, message);
+    } else {
+      final sending = send(processedAttachments);
+      if (!isThread) sent = sending;
+
+      // Vommet issue 565: sent from another account, the local echo only
+      // shows in that account's timeline, so say it is on its way.
+      if (overrideClient != null &&
+          targetRoom != room &&
+          message.trim().isNotEmpty) {
+        prefixedSends.track(
+            overrideClient.self?.identifier ?? overrideClient.identifier,
+            sending,
+            // Attachments are sent separately; only retry the text.
+            retry: () => send(const []),
+            awaitArrival: replaceEvent == null);
+      }
+
+      // An edit stays with the message; a scheduled one posts nothing yet.
+      if (replaceEvent == null && ScheduledMessages.currentRequest == null) {
+        showLatestMessages();
+      }
+    }
+
+    typingIndicators?.setTypingStatus(false);
+    setInteractingEvent(null);
+    setState(() => attachments.removeWhere(batch.contains));
+    setMessageInputText.add("");
+    sendPendingForward(after: sent);
+  }
+
+  void onPendingForwardChanged(String key) {
+    if (key != PendingForwards.keyFor(room) || !mounted) return;
+    setState(() => pendingForward = PendingForwards.get(room));
+  }
+
+  /// Sends the pending forward, after the text typed with it (Telegram order).
+  /// Several messages go out oldest first, a little apart. Vommet issue 803:
+  /// a forward picked for several rooms then goes to the others too; the
+  /// typed text stays in this room.
+  Future<void> sendPendingForward({Future<Object?>? after}) async {
+    var forward = pendingForward;
+    if (forward == null || isThread) return;
+    PendingForwards.clear(room);
+
+    var sent = 0;
+    try {
+      await after;
+      for (final event in forward.events) {
+        if (sent > 0) await Future.delayed(const Duration(milliseconds: 300));
+        await MatrixForwarding.forward(event, forward.timeline, room,
+            showSender: forward.showSender, hideCaption: forward.hideCaption);
+        sent++;
+      }
+      if (forward.extraRooms.isNotEmpty && mounted) {
+        final redaction = RedactionScope.of(context);
+        unawaited(forwardToOtherRooms(
+            forward, forward.extraRooms, ScaffoldMessenger.maybeOf(context),
+            name: (room) => redaction.roomDisplayName(room)));
+      }
+    } catch (error, trace) {
+      Log.onError(error, trace, content: "Failed to forward message");
+      // Put what wasn't sent back in the message box so it can be sent again.
+      // Vommet issue 803: the other rooms weren't sent to yet; keep them.
+      final rest =
+          forward.withoutFirst(sent)?.copyWith(extraRooms: forward.extraRooms);
+      if (rest != null) PendingForwards.set(room, rest);
+      if (mounted) {
+        AdaptiveDialog.show(context,
+            builder: (context) => tiamat.Text.label("$error"));
+      }
+    }
+  }
+
+  static String labelForwardFailedRooms(int count, String rooms) => Intl.plural(
+      count,
+      one: "Couldn't forward to $rooms",
+      other: "Couldn't forward to $count rooms: $rooms",
+      args: [count, rooms],
+      desc: "Snackbar when a forward to several rooms failed in some of them",
+      name: "labelForwardFailedRooms");
+
+  static String get promptForwardRetry => Intl.message("Retry",
+      desc:
+          "Button on the snackbar of a failed multi-room forward that sends to the failed rooms again",
+      name: "promptForwardRetry");
+
+  /// Vommet issue 803: sends [forward] to each of [rooms]; the ones that
+  /// fail are listed in one snackbar whose Retry sends what's left to them.
+  static Future<void> forwardToOtherRooms(PendingForward forward,
+      List<Room> rooms, ScaffoldMessengerState? messenger,
+      {required String Function(Room room) name}) async {
+    final failed = <(Room, PendingForward)>[];
+    for (final target in rooms) {
+      final rest = await forwardTo(target, forward);
+      if (rest != null) failed.add((target, rest));
+    }
+    showForwardFailures(failed, messenger, name: name);
+  }
+
+  /// Sends [forward] to [target]; returns what wasn't sent, if it failed.
+  static Future<PendingForward?> forwardTo(
+      Room target, PendingForward forward) async {
+    var sent = 0;
+    try {
+      for (final event in forward.events) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        await MatrixForwarding.forward(event, forward.timeline, target,
+            showSender: forward.showSender, hideCaption: forward.hideCaption);
+        sent++;
+      }
+      return null;
+    } catch (error, trace) {
+      Log.onError(error, trace, content: "Failed to forward message");
+      return forward.withoutFirst(sent);
+    }
+  }
+
+  static void showForwardFailures(
+      List<(Room, PendingForward)> failed, ScaffoldMessengerState? messenger,
+      {required String Function(Room room) name}) {
+    if (failed.isEmpty || messenger == null || !messenger.mounted) return;
+
+    messenger.showSnackBar(SnackBar(
+      content: Text(labelForwardFailedRooms(
+          failed.length, failed.map((f) => name(f.$1)).join(", "))),
+      action: SnackBarAction(
+          label: promptForwardRetry,
+          onPressed: () async {
+            final still = <(Room, PendingForward)>[];
+            for (final (target, rest) in failed) {
+              final left = await forwardTo(target, rest);
+              if (left != null) still.add((target, left));
+            }
+            showForwardFailures(still, messenger, name: name);
+          }),
+    ));
+  }
+
+  Future<void> doCommand(
+      CommandComponent<Client>? component, String message) async {
+    final newestBefore = timeline?.events.firstOrNull?.eventId;
+    try {
+      await component?.executeCommand(message, room,
+          interactingEvent: interactingEvent, type: interactionType);
+
+      // Vommet issue 1022: a command that posted a message ("Send with
+      // effect", /me); others (/status, /react, s/a/b/) leave the view alone.
+      final newest = timeline?.events.firstOrNull;
+      if (mounted &&
+          newest?.eventId != newestBefore &&
+          newest?.senderId == room.client.self?.identifier &&
+          (newest is TimelineEventMessage || newest is TimelineEventEmote)) {
+        showLatestMessages();
+      }
+    } catch (error, trace) {
+      Log.onError(error, trace);
+      if (mounted)
+        AdaptiveDialog.show(context,
+            builder: (context) => tiamat.Text.label("$error"));
+    }
+  }
+
+  void setInteractingEvent(TimelineEvent? event,
+      {EventInteractionType? type, String? loadedEditText}) {
+    if (_pendingEditStep != null) return;
+    if (event == null) {
+      setState(() {
+        interactingEvent = null;
+        interactionType = null;
+        _editBaseline = null;
+        _preserveHistoryEdit = false;
+      });
+      return;
+    }
+
+    if (event is! TimelineEventMessage &&
+        event is! TimelineEventSticker &&
+        event is! TimelineEventEmote) {
+      return;
+    }
+
+    setState(() {
+      interactingEvent = event;
+      interactionType = type;
+      _editBaseline = null;
+      _preserveHistoryEdit = false;
+
+      switch (type) {
+        case EventInteractionType.reply:
+          onFocusMessageInput.add(null);
+          break;
+        case EventInteractionType.edit:
+          if ((loadedEditText ?? editText(event)) case String text) {
+            _editBaseline = text;
+            inputText = text;
+            setMessageInputText.add(text);
+          }
+
+          onFocusMessageInput.add(null);
+          break;
+        default:
+      }
+    });
+  }
+
+  /// The text put in the composer to edit [event], or null when it can't be
+  /// edited as text.
+  String? editText(TimelineEvent event) {
+    if (timeline == null) return null;
+    return switch (event) {
+      TimelineEventMessage m =>
+        MatrixEditText.of(m, timeline!) ?? m.getPlaintextBody(timeline!),
+      TimelineEventEmote e => e.getPlaintextBody(timeline!),
+      _ => null,
+    };
+  }
+
+  void clearAttachments() {
+    setState(() {
+      attachments.clear();
+    });
+  }
+
+  void addReaction(TimelineEvent event, Emoticon emote) {
+    room.addReaction(event, emote);
+  }
+
+  void sendSticker(Emoticon sticker) {
+    showLatestMessages();
+    emoticons?.sendSticker(sticker,
+        interactionType == EventInteractionType.reply ? interactingEvent : null,
+        threadRootEventId: threadId);
+
+    if (interactionType == EventInteractionType.reply) {
+      setInteractingEvent(null);
+    }
+  }
+
+  Future<void> sendGif(GifSearchResult gif) async {
+    showLatestMessages();
+    await gifs?.sendGif(room, gif,
+        interactionType == EventInteractionType.reply ? interactingEvent : null,
+        threadRootEventId: threadId);
+
+    if (interactionType == EventInteractionType.reply) {
+      setInteractingEvent(null);
+    }
+  }
+
+  // Vommet: keyboard edit history and its confirmation (Vommet issue 1097).
+  String get editHistorySent =>
+      Intl.message("Edit sent.", name: "editHistorySent");
+
+  String? _editBaseline;
+  bool _preserveHistoryEdit = false;
+  ({String source, String target, bool older, String text})? _pendingEditStep;
+  bool? get editStepOlder => _pendingEditStep?.older;
+  bool editStepFailed = false;
+
+  static const _editHistoryStepLimit = 20;
+
+  bool get _canStepEdit =>
+      !processing &&
+      attachments.isEmpty &&
+      pendingForward == null &&
+      room.permissions.canSendMessage &&
+      room.permissions.canUserEditMessages;
+
+  String? _historyEditText(TimelineEvent event) {
+    if (event.senderId != room.client.self?.identifier ||
+        event.status != TimelineEventStatus.synced ||
+        !event.editable ||
+        room.threadRootIdOf(event) != widget.threadId ||
+        (event is MatrixTimelineEvent &&
+            (event.event.redacted ||
+                event.event.relationshipType == 'm.replace' ||
+                (event.event.messageType != 'm.text' &&
+                    event.event.messageType != 'm.emote')))) {
+      return null;
+    }
+    return editText(event);
+  }
+
+  bool stepEditTarget({required bool older, required String text}) {
+    if (!_canStepEdit || _pendingEditStep != null || text != inputText) {
+      return false;
+    }
+    final events = timeline?.events;
+    if (events == null) return false;
+    final source = interactingEvent;
+    if (source == null) {
+      if (!older || interactionType != null || text.isNotEmpty) return false;
+    } else if (interactionType != EventInteractionType.edit) {
+      return false;
+    }
+
+    final index = source == null
+        ? -1
+        : events.indexWhere((event) => event.eventId == source.eventId);
+    if (source != null &&
+        (index < 0 || _historyEditText(events[index]) == null)) {
+      return false;
+    }
+
+    final direction = older ? 1 : -1;
+    for (var distance = 1; distance <= _editHistoryStepLimit; distance++) {
+      final next = index + distance * direction;
+      if (next < 0 || next >= events.length) return false;
+      final target = events[next];
+      final targetText = _historyEditText(target);
+      if (targetText == null) continue;
+
+      final baseline =
+          _editBaseline ?? (source == null ? null : editText(source));
+      if (source != null &&
+          (baseline == null || baseline.trim() != text.trim())) {
+        setState(() {
+          _preserveHistoryEdit = true;
+          _editBaseline = baseline ?? '';
+          _pendingEditStep = (
+            source: source.eventId,
+            target: target.eventId,
+            older: older,
+            text: text,
+          );
+          editStepFailed = false;
+        });
+        return true;
+      }
+      _openHistoryEdit(target, targetText);
+      return true;
+    }
+    return false;
+  }
+
+  void _openHistoryEdit(TimelineEvent event, String text) {
+    setInteractingEvent(event,
+        type: EventInteractionType.edit, loadedEditText: text);
+    _preserveHistoryEdit = true;
+  }
+
+  void cancelEditStep() {
+    if (processing || _pendingEditStep == null) return;
+    setState(() {
+      _pendingEditStep = null;
+      editStepFailed = false;
+    });
+    onFocusMessageInput.add(null);
+  }
+
+  Future<void> confirmEditStep(String text, String outgoing) async {
+    final step = _pendingEditStep;
+    if (step == null || processing || step.text != text || inputText != text) {
+      return;
+    }
+    final source = interactingEvent;
+    final events = timeline?.events;
+    TimelineEvent? find(String id) =>
+        events?.where((event) => event.eventId == id).firstOrNull;
+    final current = find(step.source);
+    final target = find(step.target);
+    if (!_canStepEdit ||
+        source?.eventId != step.source ||
+        current == null ||
+        target == null ||
+        _historyEditText(current) == null ||
+        _historyEditText(target) == null ||
+        outgoing.isEmpty) {
+      setState(() => editStepFailed = true);
+      return;
+    }
+
+    final thread = widget.threadId;
+    final key = draftKey;
+    setState(() => processing = true);
+    TimelineEvent? sent;
+    try {
+      sent = thread == null
+          ? await room.sendMessage(message: outgoing, replaceEvent: current)
+          : await threadsComponent?.sendMessage(
+              threadRootEventId: thread,
+              room: room,
+              message: outgoing,
+              replaceEvent: current);
+    } catch (error, stack) {
+      Log.onError(error, stack, content: "Failed to send edit");
+    }
+    if (!mounted || draftKey != key) {
+      if (sent != null &&
+          drafts.get(key)?.relatedEvent?.eventId == step.source &&
+          drafts.get(key)?.text == text) {
+        drafts.clear(key);
+      }
+      return;
+    }
+    setState(() => processing = false);
+    if (_pendingEditStep != step) return;
+    if (sent == null) {
+      setState(() => editStepFailed = true);
+      return;
+    }
+
+    _pendingEditStep = null;
+    editStepFailed = false;
+    drafts.clear(key);
+    if (inputText != text) {
+      _editBaseline = outgoing;
+      onFocusMessageInput.add(null);
+      return;
+    }
+    final destination = timeline?.events
+        .where((event) => event.eventId == step.target)
+        .firstOrNull;
+    final nextText = destination == null ? null : _historyEditText(destination);
+    if (destination != null && _canStepEdit && nextText != null) {
+      _openHistoryEdit(destination, nextText);
+      return;
+    }
+    inputText = "";
+    setInteractingEvent(null);
+    setMessageInputText.add("");
+    onFocusMessageInput.add(null);
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(editHistorySent)));
+  }
+
+  /// Vommet: Ctrl+↑ / Ctrl+↓ step the reply target through the timeline
+  /// (Vommet issue 37).
+  void stepReplyTarget({required bool older}) {
+    if (interactionType == EventInteractionType.edit) return;
+    if (room.getComponent<PhotoAlbumRoom>() != null) return;
+    final events = timeline?.events;
+    if (events == null) return;
+
+    final current =
+        interactionType == EventInteractionType.reply ? interactingEvent : null;
+    final next = ReplyNavigation.step<TimelineEvent>(events, current,
+        older: older,
+        canReply: (event) =>
+            event.status == TimelineEventStatus.synced &&
+            (event is TimelineEventMessage || event is TimelineEventSticker),
+        id: (event) => event.eventId);
+
+    if (identical(next, current)) return;
+    setInteractingEvent(next,
+        type: next == null ? null : EventInteractionType.reply);
+  }
+
+  void onInputTextUpdated(String currentText) {
+    inputText = currentText;
+    if (!isThread &&
+        !isBubble &&
+        currentText.trim().isEmpty &&
+        ScheduledEditHandoff.contains(room)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => claimScheduledEdit());
+    }
+
+    // Vommet issue 676: no preview for an edit (the event keeps its own).
+    linkPreview.update(
+        interactionType == EventInteractionType.edit ? "" : currentText);
+
+    if (isThread) {
+      return;
+    }
+
+    var component = room.client.getComponent<CommandComponent>();
+    if (component?.isPossiblyCommand(currentText) == true) {
+      return;
+    }
+
+    var prefixComp = room.client.getComponent<AccountSwitchPrefix>();
+    if (prefixComp?.isPossiblyUsingPrefix(currentText) == true) {
+      return;
+    }
+
+    if (currentText.isEmpty) {
+      stopTyping();
+      typingStatusDebouncer.cancel();
+      lastSetTyping = DateTime.fromMicrosecondsSinceEpoch(0);
+    } else {
+      if ((DateTime.now().difference(lastSetTyping)).inSeconds > 3) {
+        typingIndicators?.setTypingStatus(true);
+        lastSetTyping = DateTime.now();
+      }
+      typingStatusDebouncer.run(stopTyping);
+    }
+  }
+
+  void stopTyping() {
+    typingIndicators?.setTypingStatus(false);
+  }
+
+  /// Vommet issue 894: the chat on screen a reply to [eventId] goes to: an
+  /// open thread showing it, else the room's main chat.
+  static ChatState? replyTarget(Room room, String eventId) {
+    final chats = _onScreen.where((c) => c.mounted && c.room == room);
+    return chats
+            .where(
+                (c) => c.isThread && c.timeline?.tryGetEvent(eventId) != null)
+            .firstOrNull ??
+        chats.where((c) => !c.isThread).firstOrNull;
+  }
+
+  /// Chats on screen (disposed ones are skipped and pruned), so a dropped file
+  /// goes only to the chat it was dropped on (Vommet issue 646).
+  static final Set<ChatState> _onScreen = {};
+
+  bool _containsGlobal(Offset position) {
+    if (!mounted) return false;
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return false;
+    return (box.localToGlobal(Offset.zero) & box.size).contains(position);
+  }
+
+  /// A drop on a thread goes to that thread only. A drop anywhere else goes to
+  /// the main chat it landed on, or to the main chat when it landed outside
+  /// every chat (sidebar, header).
+  bool ownsDrop(Offset position) {
+    if (isThread) return _containsGlobal(position);
+
+    final others = _onScreen.where((c) => c != this && c.mounted);
+    if (others.any((c) => c.isThread && c._containsGlobal(position))) {
+      return false;
+    }
+
+    return _containsGlobal(position) ||
+        !others.any((c) => c._containsGlobal(position));
+  }
+
+  void onFileDropped(DropDoneDetails event) async {
+    if (!ownsDrop(event.globalPosition)) return;
+
+    var path = event.rawText;
+
+    print(path);
+    if (path != null) {
+      var custom = CustomURI.parse(path);
+
+      if (custom case AddWidgetURI widgetUri) {
+        AdaptiveDialog.show(context, builder: (dialogContext) {
+          return AddWidgetDialog(widgetUri: widgetUri, room: widget.room);
+        }, title: 'Add "${widgetUri.widgetName ?? "Custom"}"?');
+      }
+    }
+
+    await attachFiles(event.files.map((f) => (path: f.path, name: f.name)));
+  }
+
+  /// Adds dropped files, one attachment dialog each. Files that can't be read
+  /// are named in one message instead of being skipped silently (Vommet issue
+  /// 328). On desktop, files go straight to the tray above the composer
+  /// (Vommet issue 1066).
+  Future<void> attachFiles(Iterable<({String path, String name})> files) async {
+    var loaded = await FileTransfer.load(files);
+    for (var attachment in loaded.files) {
+      if (!mounted) return;
+      if (DesktopAttachmentTray.handles(attachment) &&
+          interactionType != EventInteractionType.edit) {
+        await DesktopAttachmentTray.applySettings(attachment, attachments);
+        await addAttachment(attachment);
+        continue;
+      }
+      var processedAttachment =
+          await AdaptiveDialog.show<PendingFileAttachment>(context,
+              scrollable: false,
+              builder: (context) => AttachmentProcessor(
+                    attachment: attachment,
+                  ));
+
+      if (processedAttachment != null && mounted) {
+        addAttachment(processedAttachment);
+      }
+    }
+
+    if (mounted) FileTransfer.showUnreadable(context, loaded.unreadable);
+  }
+
+  Future<void> sendFavoriteGif(FavoriteGif gif) async {
+    showLatestMessages();
+    await room.client.getComponent<GifComponent>()?.sendFavoriteGif(room, gif,
+        interactionType == EventInteractionType.reply ? interactingEvent : null,
+        threadRootEventId: threadId);
+  }
+
+  void onLinked(Uri event) {
+    var custom = CustomURI.parse(event.toString());
+
+    if (custom case AddWidgetURI widgetUri) {
+      AdaptiveDialog.show(context, builder: (dialogContext) {
+        return AddWidgetDialog(widgetUri: widgetUri, room: widget.room);
+      }, title: 'Add "${widgetUri.widgetName ?? "Custom"}"?');
+    }
+  }
+
+  /// Vommet: takes a share meant for this room. Text goes into the message
+  /// box; the files go to the composer as one batch (Vommet issue 1066), which
+  /// opens the send screen on a phone and an attachment dialog per file
+  /// elsewhere.
+  void claimShare() {
+    final payload = ShareIntake.claim(room);
+    if (payload == null) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final text = payload.text?.trim();
+      if (text != null && text.isNotEmpty) setMessageInputText.add(text);
+
+      final files = <PendingFileAttachment>[];
+      for (final file in payload.files) {
+        final (size, data) = await file.read();
+        files.add(PendingFileAttachment(
+            name: file.name,
+            path: file.path,
+            size: size,
+            data: data,
+            mimeType: file.mimeType));
+      }
+      if (files.isNotEmpty && mounted) sharedFiles.add(files);
+    });
+  }
+}
