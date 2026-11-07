@@ -1,0 +1,45 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:tiamat/atoms/room_list_surface.dart';
+import 'package:tiamat/config/style/theme_extensions.dart';
+
+class Foundation extends StatelessWidget {
+  const Foundation({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    var data = Theme.of(context).extension<FoundationSettings>();
+
+    bool alignImage =
+        [BoxFit.cover, BoxFit.fill].contains(data?.imageFit) == false;
+    // Vommet issue 1194: geometry only; existing backdrop painting stays here.
+    return RoomListFoundation(
+        child: Container(
+      decoration: BoxDecoration(color: data?.color, gradient: data?.gradient),
+      child: Stack(
+        fit: data?.stackFit ?? StackFit.expand,
+        children: [
+          if (data?.image != null)
+            if (!alignImage)
+              Image(
+                image: data!.image!,
+                fit: data.imageFit,
+              ),
+          if (data?.image != null)
+            if (alignImage)
+              Align(
+                alignment: data?.imageAlignment ?? Alignment.center,
+                child: Image(
+                  image: data!.image!,
+                  fit: data.imageFit,
+                ),
+              ),
+          child,
+        ],
+      ),
+    ));
+  }
+}
