@@ -1,0 +1,18 @@
+# Vommet: vendored copy of crop_image 1.0.17 (MIT, see LICENSE) whose crop
+# handles hit-test where a drag went down; see VOMMET.md.
+name: crop_image
+description: An image cropper widget, with 90-degree rotations. Supports mobile, web and desktop.
+version: 1.0.17+vommet.1
+homepage: https://github.com/deakjahn/crop_image
+
+environment:
+  sdk: ">=2.17.0 <4.0.0"
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
