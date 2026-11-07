@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vommet (local data encryption): Auto Backup on Android 11 and older
+     (android:fullBackupContent). Never backed up: the databases and the key
+     vault's files (files/db: messages, search index, media cache index,
+     keystore.json, the encryption setting and the key file fallback), the
+     copies kept by Start over / Reset (files/vommet-kept), the master key's wrapped copy
+     (flutter_secure_storage's shared preferences; the Android Keystore key
+     that unwraps it never leaves the device, so a restored copy would be
+     useless anyway) and the media cache (in the cache directory, which
+     Android doesn't back up either). Keep in sync with
+     vommet_data_extraction_rules.xml. -->
+<full-backup-content>
+    <exclude domain="file" path="db/" />
+    <exclude domain="file" path="vommet-kept/" />
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="root" path="cache/media_cache/" />
+</full-backup-content>

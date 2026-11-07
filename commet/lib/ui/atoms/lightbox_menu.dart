@@ -1,0 +1,338 @@
+import 'package:commet/ui/molecules/my_gifs_from_viewer.dart';
+import 'package:commet/cache/file_provider.dart';
+import 'package:commet/debug/log.dart';
+import 'package:commet/main.dart';
+// Vommet issue 1216: image orientation is a viewing preference.
+import 'package:commet/ui/atoms/lightbox_rotation_controls.dart';
+import 'package:commet/ui/navigation/adaptive_dialog.dart';
+import 'package:commet/ui/organisms/room_members_list/room_media_selection.dart';
+import 'package:commet/ui/organisms/room_members_list/room_attachments.dart'
+    show promptJumpToMessage;
+import 'package:commet/ui/organisms/forward_message/forward_message_dialog.dart';
+import 'package:commet/utils/common_strings.dart';
+import 'package:commet/utils/download_utils.dart';
+import 'package:commet/utils/image/viewer_rotation.dart';
+import 'package:commet/utils/image_clipboard.dart';
+import 'package:commet/utils/image_save.dart';
+import 'package:commet/utils/image_share.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:commet/ui/molecules/video_player/video_pip.dart';
+
+String get lightboxMenuTooltip => Intl.message("More options",
+    desc: "Tooltip of the ⋮ button in the media viewer's top-right corner",
+    name: "lightboxMenuTooltip");
+
+/// Vommet: the media viewer's menu (Copy / Save as / Share). A picture's
+/// long-press or right-click opens it; Vommet issue 766 adds the visible
+/// ⋮ button ([LightboxMenuButton]) for pictures and videos.
+class LightboxMenu {
+  /// Opens the menu at [position] (global) for [image] or [video].
+  /// Vommet issue 771: [onJumpToMessage] (viewer opened from the Media tab)
+  /// adds Jump to message; the caller closes the viewer. Vommet issue 802:
+  /// [onForward] adds Forward (the caller closes the viewer too). Vommet
+  /// issue 894: [onReply] adds Reply, first (the caller closes it too).
+  static Future<void> show(
+    BuildContext context,
+    Offset position, {
+    ImageProvider? image,
+    FileProvider? video,
+    String? fileName,
+    bool showRotationActions = true,
+    VoidCallback? onJumpToMessage,
+    VoidCallback? onForward,
+    VoidCallback? onReply,
+    VoidCallback? onPictureInPicture,
+    MyGifsMenuEntryBuilder? myGifsMenuEntry,
+  }) async {
+    if (image == null && video == null) return;
+    final gifEntry = myGifsMenuEntry?.call();
+    final rotation =
+        image == null ? null : preferences.viewerRotations.acquire(image);
+    final choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+          position.dx, position.dy, position.dx, position.dy),
+      items: [
+        // Vommet issue 1216: also reachable by right-click/long-press when zoomed.
+        if (rotation != null) ...[
+          if (showRotationActions)
+            for (final (direction, label, icon) in [
+              (-1, viewerRotateLeft, Icons.rotate_left),
+              (1, viewerRotateRight, Icons.rotate_right),
+            ])
+              PopupMenuItem<String>(
+                onTap: () => rotation.turn(direction),
+                child: Row(spacing: 12, children: [
+                  Icon(icon, size: 20),
+                  Flexible(child: Text(label)),
+                ]),
+              ),
+          PopupMenuItem<String>(
+            enabled: rotation.value != 0,
+            onTap: () => rotation.setTurns(0),
+            child: Text(viewerResetRotation),
+          ),
+        ],
+        if (onReply != null)
+          PopupMenuItem(
+            value: "reply",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.reply, size: 20),
+              Flexible(child: Text(CommonStrings.promptReply)),
+            ]),
+          ),
+        if (onJumpToMessage != null)
+          PopupMenuItem(
+            value: "jump",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.chat_bubble_outline, size: 20),
+              Flexible(child: Text(promptJumpToMessage)),
+            ]),
+          ),
+        if (onForward != null)
+          PopupMenuItem(
+            value: "forward",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.shortcut, size: 20),
+              Flexible(child: Text(ForwardMessageDialog.promptForwardMessage)),
+            ]),
+          ),
+        if (gifEntry != null)
+          PopupMenuItem(
+            value: "my-gifs",
+            child: Row(spacing: 12, children: [
+              Icon(gifEntry.icon, size: 20),
+              Flexible(child: Text(gifEntry.name)),
+            ]),
+          ),
+        if (video != null && onPictureInPicture != null)
+          PopupMenuItem(
+            value: "pip",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.picture_in_picture_alt_rounded, size: 20),
+              Flexible(child: Text(videoPipOpen)),
+            ]),
+          ),
+        if (image != null && ImageClipboard.supported)
+          PopupMenuItem(
+            value: "copy",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.copy, size: 20),
+              Flexible(child: Text(CommonStrings.promptCopyImage)),
+            ]),
+          ),
+        PopupMenuItem(
+          value: "save",
+          child: Row(spacing: 12, children: [
+            const Icon(Icons.save_alt, size: 20),
+            Flexible(child: Text(CommonStrings.promptSaveAs)),
+          ]),
+        ),
+        if (DownloadUtils.canSaveToGallery)
+          PopupMenuItem(
+            value: "gallery",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.save_outlined, size: 20),
+              Flexible(child: Text(RoomMediaSelectionBar.roomMediaSave)),
+            ]),
+          ),
+        if (ImageShare.supported)
+          PopupMenuItem(
+            value: "share",
+            child: Row(spacing: 12, children: [
+              const Icon(Icons.share, size: 20),
+              Flexible(child: Text(CommonStrings.promptShare)),
+            ]),
+          ),
+      ],
+    ).whenComplete(() => rotation?.release());
+    final origin = position & const Size(1, 1);
+    switch (choice) {
+      case "reply" when onReply != null:
+        onReply();
+      case "jump" when onJumpToMessage != null:
+        onJumpToMessage();
+      case "forward" when onForward != null:
+        onForward();
+      case "my-gifs" when gifEntry != null:
+        if (context.mounted) await gifEntry.action?.call(context);
+      case "pip" when onPictureInPicture != null:
+        onPictureInPicture();
+      case "copy" when image != null:
+        await ImageClipboard.copy(image);
+      case "save" when image != null:
+        await ImageSave.saveAs(image, fileName: fileName);
+      case "save" when video != null:
+        if (context.mounted) {
+          await saveVideo(context, video, fileName: fileName, toGallery: false);
+        }
+      case "gallery":
+        if (!context.mounted) return;
+        if (video != null) {
+          await saveVideo(context, video, fileName: fileName, toGallery: true);
+        } else {
+          await saveToGallery(context, image: image, fileName: fileName);
+        }
+      case "share" when image != null:
+        await ImageShare.share(image, fileName: fileName, origin: origin);
+      case "share" when video != null:
+        await ImageShare.shareFile(video, fileName: fileName, origin: origin);
+    }
+  }
+
+  // Vommet: share shortcut and menu saves (Vommet issue 1053).
+  // Removed on completion, including errors.
+  // Only the same file and destination are coalesced: phone Save as still
+  // opens its picker if a separate gallery import is in progress.
+  static final _videoSaves = <(FileProvider, bool), Future<void>>{};
+
+  static Future<void> saveVideo(BuildContext context, FileProvider video,
+      {String? fileName, bool? toGallery}) {
+    final gallery = toGallery ?? DownloadUtils.canSaveToGallery;
+    final key = (video, gallery);
+    return _videoSaves[key] ??=
+        _saveVideo(context, video, fileName: fileName, toGallery: gallery)
+            .whenComplete(() {
+      _videoSaves.remove(key);
+    });
+  }
+
+  static Future<void> _saveVideo(BuildContext context, FileProvider video,
+      {String? fileName, required bool toGallery}) async {
+    if (toGallery) {
+      await saveToGallery(context, video: video, fileName: fileName);
+      return;
+    }
+    try {
+      await DownloadUtils.downloadFile(video, videoFileName(fileName),
+          reportFailure: true);
+    } catch (error, trace) {
+      // The background task remains available for retry. Report here too:
+      // the fullscreen viewer covers the app's background-task panel.
+      if (context.mounted)
+        await AdaptiveDialog.showError(context, error, trace);
+    }
+  }
+
+  static Future<void> saveToGallery(BuildContext context,
+      {ImageProvider? image, FileProvider? video, String? fileName}) async {
+    try {
+      final saved = await DownloadUtils.saveViewerMediaToGallery(
+          image: image, video: video, fileName: fileName);
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(saved == null
+              ? RoomMediaSelection.roomMediaGalleryAccessDenied
+              : RoomMediaSelection.roomMediaSavedToGallery(saved))));
+    } catch (error, trace) {
+      Log.onError(error, trace, content: "Failed to save media to gallery");
+      if (context.mounted)
+        await AdaptiveDialog.showError(context, error, trace);
+    }
+  }
+
+  /// The suggested name when saving a video: its own, or "video.mp4".
+  static String videoFileName(String? fileName) {
+    final name = fileName?.trim() ?? "";
+    return name.isEmpty ? "video.mp4" : name;
+  }
+}
+
+/// Vommet issue 766: the ⋮ in the viewer's top-right corner. It fades out
+/// while the picture or video is [hidden] (zoomed in) and back in at its
+/// original size.
+class LightboxMenuButton extends StatefulWidget {
+  const LightboxMenuButton({
+    required this.onOpen,
+    this.hidden = false,
+    this.image,
+    super.key,
+  });
+
+  /// Opens the menu at the given global position (under the button).
+  final void Function(Offset position) onOpen;
+  final bool hidden;
+
+  // Vommet issue 1216: the source provider, not a thumbnail/decode cache key.
+  final ImageProvider? image;
+
+  static const Duration fade = Duration(milliseconds: 250);
+
+  @override
+  State<LightboxMenuButton> createState() => _LightboxMenuButtonState();
+}
+
+class _LightboxMenuButtonState extends State<LightboxMenuButton> {
+  ViewerRotation? rotation;
+
+  void bind() {
+    rotation = widget.image == null
+        ? null
+        : preferences.viewerRotations.acquire(widget.image!);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    bind();
+  }
+
+  @override
+  void didUpdateWidget(LightboxMenuButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.image, widget.image)) {
+      rotation?.release();
+      bind();
+    }
+  }
+
+  @override
+  void dispose() {
+    rotation?.release();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hidden = widget.hidden;
+    return AnimatedOpacity(
+      opacity: hidden ? 0 : 1,
+      duration: LightboxMenuButton.fade,
+      curve: Curves.easeInOut,
+      child: IgnorePointer(
+        ignoring: hidden,
+        // The viewer is a bare overlay; the button brings its own Material.
+        child: Material(
+          color: Colors.black45,
+          shape: const StadiumBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (rotation != null)
+              ExcludeFocus(
+                excluding: hidden,
+                child: LightboxRotationControls(rotation: rotation!),
+              ),
+            Builder(
+              builder: (context) => IconButton(
+                key: const ValueKey("lightbox_menu_button"),
+                constraints: rotation == null
+                    ? null
+                    : const BoxConstraints.tightFor(width: 48, height: 48),
+                tooltip: lightboxMenuTooltip,
+                icon: const Icon(Icons.more_vert),
+                color: Colors.white,
+                onPressed: () {
+                  final box = context.findRenderObject();
+                  if (box is! RenderBox || !box.hasSize) return;
+                  widget.onOpen(
+                      box.localToGlobal(box.size.bottomRight(Offset.zero)));
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
