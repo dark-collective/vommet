@@ -1,0 +1,679 @@
+import 'dart:async';
+
+import 'package:commet/client/client.dart';
+import 'package:commet/client/client_manager.dart';
+import 'package:commet/client/matrix/components/voip_room/matrix_rtc_stale_membership.dart';
+import 'package:commet/client/matrix/matrix_client.dart';
+import 'package:commet/debug/log.dart';
+import 'package:commet/client/components/direct_messages/direct_message_component.dart';
+import 'package:commet/client/components/push_notification/notification_content.dart';
+import 'package:commet/client/components/push_notification/notification_manager.dart';
+import 'package:commet/client/components/voip/voip_component.dart';
+import 'package:commet/client/components/voip/voip_session.dart';
+import 'package:commet/client/components/voip/voip_stream.dart';
+import 'package:commet/client/components/widgets/widget_component.dart';
+import 'package:commet/client/matrix/components/voip_room/matrix_livekit_voip_session.dart';
+import 'package:commet/client/matrix/components/voip_room/push_to_talk_microphone.dart';
+import 'package:commet/client/push_to_talk.dart';
+import 'package:commet/client/sounds/app_sounds.dart';
+import 'package:commet/client/sounds/livekit_call_sounds.dart';
+import 'package:commet/client/stale_info.dart';
+import 'package:commet/config/platform_utils.dart';
+import 'package:commet/main.dart';
+import 'package:commet/utils/notifying_list.dart';
+import 'package:commet/utils/overlay.dart';
+import 'package:intl/intl.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:media_kit/media_kit.dart';
+
+class CallManager {
+  ClientManager clientManager;
+  final StreamController<VoipSession> _onSessionStarted =
+      StreamController.broadcast();
+
+  // Vommet issue 473: static, so the redacted-mode notification modifier can
+  // rebuild these with redacted names.
+  static String notificationContentUserIsCalling(String user) => Intl.message(
+      "$user is calling!",
+      desc:
+          "Notification body content for when receiving an incoming call from another user",
+      args: [user],
+      name: "notificationContentUserIsCalling");
+
+  static String notificationTitleIncomingCall(String roomName) =>
+      Intl.message("Incoming Call! ($roomName)",
+          desc: "Notification title for when a call is being received",
+          args: [roomName],
+          name: "notificationTitleIncomingCall");
+
+  Stream<VoipSession> get onSessionStarted => _onSessionStarted.stream;
+
+  NotifyingList<VoipSession> currentSessions =
+      NotifyingList.empty(growable: true);
+
+  CallManager(this.clientManager) {
+    clientManager.onClientAdded.stream.listen(_onClientAdded);
+    clientManager.onClientRemoved.stream.listen(_onClientRemoved);
+    // Vommet: switching the input mode applies to calls you're in.
+    preferences.voipPushToTalk.onChanged.listen((_) {
+      pushToTalk.reset();
+      _applyMicrophones(_liveCalls.toList());
+      _onSelfAudioChanged.add(null);
+    });
+  }
+
+  Player? player;
+  Player? muteSoundPlayer;
+  Player? unmuteSoundPlayer;
+
+  void _onClientAdded(int index) {
+    var client = clientManager.clients[index];
+
+    // Vommet: a call membership the last run left behind (app quit or killed
+    // mid-call) would keep showing us in the call; clear our own.
+    if (client is MatrixClient && !isHeadless) {
+      (client.firstSync ?? client.onSync.first)
+          .then((_) => MatrixRtcStaleMembership.sweep(client))
+          .catchError((Object e) => Log.w("Stale call sweep failed: $e"));
+    }
+
+    var voip = client.getComponent<VoipComponent>();
+    if (voip == null) {
+      return;
+    }
+
+    voip.onSessionStarted.listen(onClientSessionStarted);
+    voip.onSessionEnded.listen(onSessionEnded);
+  }
+
+  void _onClientRemoved(StalePeerInfo event) {}
+
+  void onClientSessionStarted(VoipSession event) {
+    var room = event.client.getRoom(event.roomId);
+    currentSessions.add(event);
+    if (event is MatrixLivekitVoipSession) {
+      _soundListeners[event.sessionId] =
+          attachLivekitCallSounds(event, playCallSound);
+    }
+
+    if (event.state == VoipState.incoming) {
+      startRingtone();
+
+      var member = room?.getMemberOrFallback(event.remoteUserId!);
+
+      NotificationManager.notify(CallNotificationContent(
+          title: notificationTitleIncomingCall(event.roomName),
+          content: notificationContentUserIsCalling(
+              event.remoteUserName ?? event.remoteUserId!),
+          roomId: event.roomId,
+          roomName: event.roomName,
+          senderName: member?.displayName ?? event.remoteUserId!,
+          roomImage: room?.avatar,
+          callId: event.sessionId,
+          senderId: event.remoteUserId!,
+          senderImage: member?.avatar,
+          senderImageId: member?.avatarId,
+          roomImageId: room?.avatarId,
+          clientId: event.client.identifier,
+          accountLabel: NotificationContent.accountLabelFor(event.client),
+          isDirectMessage: event.client
+                  .getComponent<DirectMessagesComponent>()
+                  ?.isRoomDirectMessage(room!) ==
+              true));
+    }
+
+    if (event.state == VoipState.outgoing) {
+      _ringingOut.add(event.sessionId);
+      startOutgoingTone();
+    }
+
+    if (event.state == VoipState.connected) {
+      _ringingOut.remove(event.sessionId);
+      _selfJoinSound();
+    }
+
+    // Vommet: a call joined while muted or deafened stays that way. LiveKit
+    // calls never open the microphone when muted (see MatrixLivekitBackend);
+    // this covers the others.
+    final audio = audioOf(event);
+    // Both ways: the microphone opened per [nextCallMuted] when the join
+    // started, and a (un)mute while connecting must still land. A ringing
+    // call is never unmuted here.
+    if (event.state != VoipState.incoming &&
+        _micOff(audio) != event.isMicrophoneMuted) {
+      event.setMicrophoneMute(_micOff(audio));
+    }
+    // Streams made before the call was listed here took the next call's
+    // deafen; now they can find their own.
+    _streamsChanged(event);
+    // A call you join or start comes to the front (not one that rings).
+    if (event.state != VoipState.incoming) {
+      _focusedSessionId = event.sessionId;
+      _onSelfAudioChanged.add(null);
+    }
+
+    event.onConnectionStateChanged.listen((_) => onCallStateChanged(event));
+    event.onStateChanged.listen((_) {
+      _streamsChanged(event);
+      _followSessionMute(event);
+    });
+
+    if (preferences.useVoipOverlay.value) {
+      showOverlay(event, room);
+    }
+  }
+
+  void showOverlay(VoipSession event, Room? room) {
+    removeOverlay();
+
+    VoipOverlay.spawn(event.client, room!, navigator.currentContext!);
+  }
+
+  void enableOverlayForExistingSessions() {
+    var session = currentSessions.firstOrNull;
+
+    if (session != null) {
+      showOverlay(session, session.client.getRoom(session.roomId));
+    }
+  }
+
+  void removeOverlay() {
+    for (var existing in WidgetComponent.currentSessions
+        .where((i) => i.info.type == VoipOverlay.widgetId)) {
+      existing.dispose();
+    }
+  }
+
+  void onSessionEnded(VoipSession event) {
+    currentSessions
+        .removeWhere((element) => element.sessionId == event.sessionId);
+    _audio.remove(event.sessionId);
+    if (_focusedSessionId == event.sessionId) _focusedSessionId = null;
+    _onSelfAudioChanged.add(null);
+
+    if (currentSessions.where((e) => e.state == VoipState.incoming).isEmpty) {
+      stopRingtone();
+    }
+
+    for (var existing in WidgetComponent.currentSessions
+        .where((i) => i.info.type == VoipOverlay.widgetId)) {
+      existing.dispose();
+    }
+
+    _soundListeners.remove(event.sessionId)?.dispose();
+
+    // Vommet: a call you started that ended while still ringing.
+    if (_ringingOut.remove(event.sessionId)) {
+      if (playSounds) AppSounds.play(SoundEvent.callNotAnswered);
+      return;
+    }
+    _selfLeaveSound();
+  }
+
+  /// Vommet: calls you started that nobody has answered yet.
+  final Set<String> _ringingOut = {};
+
+  /// Vommet: each LiveKit call's listener for [attachLivekitCallSounds].
+  final Map<String, lk.EventsListener<lk.RoomEvent>> _soundListeners = {};
+
+  VoipSession? getCallInRoom(Client client, String roomId) {
+    return currentSessions
+        .where(
+            (element) => element.client == client && element.roomId == roomId)
+        .firstOrNull;
+  }
+
+  void startRingtone() {
+    // Let push notifications do the ringtone
+    if (PlatformUtils.isAndroid) {
+      return;
+    }
+
+    if (player?.state.playing == true) {
+      return;
+    }
+
+    final sound = AppSounds.media(SoundEvent.ringIncoming);
+    if (sound == null) return;
+    player = getSoundPlayer();
+    player?.open(sound);
+  }
+
+  void startOutgoingTone() {
+    if (!playSounds) return;
+    if (player?.state.playing == true) {
+      return;
+    }
+
+    final sound = AppSounds.media(SoundEvent.ringOutgoing);
+    if (sound == null) return;
+    player = getSoundPlayer();
+    player?.open(sound);
+    player?.setPlaylistMode(PlaylistMode.loop);
+  }
+
+  /// Vommet: someone else joined a call you're in (the LiveKit session calls
+  /// this); your own join plays [_selfJoinSound].
+  void joinCallSound() => playCallSound(SoundEvent.peerJoin);
+
+  /// Vommet: someone else left a call you're in.
+  void endCallSound() => playCallSound(SoundEvent.peerLeave);
+
+  void _selfJoinSound() {
+    if (!playSounds) return;
+    final sound = AppSounds.media(SoundEvent.selfJoin);
+    if (sound == null) return;
+    player = getSoundPlayer();
+    player?.open(sound);
+    player?.setPlaylistMode(PlaylistMode.none);
+  }
+
+  /// Vommet: sounds for what happens in a call besides you (AppSounds).
+  void playCallSound(SoundEvent sound) {
+    if (!playSounds) return;
+    AppSounds.play(sound);
+  }
+
+  /// Vommet: mute and deafen are the user's own state, as in Discord. With
+  /// experiment_call_cards each call has its own (Vommet can be in several
+  /// calls at once, on different accounts), and a new call starts with the
+  /// state last used; without it, one state for every call, as before. Out
+  /// of a call it's the state the next call starts with, so joining muted
+  /// works.
+  final Map<String, CallAudio> _audio = {};
+  final CallAudio _next = CallAudio();
+
+  /// The call on screen in the call panel (its open card): the user panel's
+  /// buttons and the shortcuts act on it.
+  String? _focusedSessionId;
+
+  static bool get perCall => preferences.experimentCallCards.value;
+
+  /// Calls we're in or joining (not ringing ones).
+  Iterable<VoipSession> get _liveCalls => currentSessions.where(
+      (s) => s.state != VoipState.ended && s.state != VoipState.incoming);
+
+  VoipSession? get focusedCall {
+    final live = _liveCalls.toList();
+    if (live.isEmpty) return null;
+    return live.where((s) => s.sessionId == _focusedSessionId).firstOrNull ??
+        live.last;
+  }
+
+  void focusCall(VoipSession session) {
+    if (_focusedSessionId == session.sessionId) return;
+    _focusedSessionId = session.sessionId;
+    _onSelfAudioChanged.add(null);
+  }
+
+  CallAudio audioOf(VoipSession session) =>
+      _audio.putIfAbsent(session.sessionId, () => _next.copy());
+
+  CallAudio get _focusedAudio {
+    final call = focusedCall;
+    return call == null ? _next : audioOf(call);
+  }
+
+  /// The focused call's state, or the next call's when there's none.
+  bool get isMuted => _focusedAudio.muted;
+  bool get isDeafened => _focusedAudio.deafened;
+
+  /// What the next call starts with (the microphone opens unmuted or not).
+  bool get nextCallMuted => _next.muted;
+
+  bool isMutedIn(VoipSession session) => audioOf(session).muted;
+  bool isDeafenedIn(VoipSession session) => audioOf(session).deafened;
+
+  /// Whether [stream]'s call is deafened (its incoming audio silenced).
+  /// A stream not in its call's list yet (its constructor applies the
+  /// volume before it's added) gets the next call's state, never another
+  /// call's; it's re-applied once added (see [_streamsChanged]).
+  bool isDeafenedFor(VoipStream stream) {
+    for (final session in currentSessions) {
+      if (session.streams.contains(stream)) return audioOf(session).deafened;
+    }
+    return _next.deafened;
+  }
+
+  /// A call's streams changed (someone joined, a track was published):
+  /// re-apply its volumes, so new streams follow this call's deafen.
+  void _streamsChanged(VoipSession session) {
+    final audio = audioOf(session);
+    final now = session.streams;
+    // The same streams (by identity, so one leaving and another joining
+    // between two events still counts as a change).
+    if (now.length == audio.streams.length &&
+        Iterable.generate(now.length)
+            .every((i) => identical(now[i], audio.streams[i]))) {
+      return;
+    }
+    audio.streams = List.of(now);
+    for (final stream in now) {
+      stream.applyPlaybackVolume();
+    }
+    _silenceIfDeafened(session);
+  }
+
+  /// Deafen also stops a LiveKit call's incoming audio at the SFU (see
+  /// [MatrixLivekitVoipSession.setIncomingAudioDeafened]).
+  void _silenceIfDeafened(VoipSession session) {
+    if (session is MatrixLivekitVoipSession) {
+      session.setIncomingAudioDeafened(audioOf(session).deafened);
+    }
+  }
+
+  final StreamController<void> _onSelfAudioChanged =
+      StreamController.broadcast();
+
+  /// Fires when any call's mute or deafen (or the focused call) changes.
+  Stream<void> get onSelfAudioChanged => _onSelfAudioChanged.stream;
+
+  /// The calls a change to [session] applies to: just it with the
+  /// experiment, every call without (and none out of a call).
+  List<VoipSession> _targets(VoipSession? session) {
+    if (session == null) return const [];
+    return perCall ? [session] : _liveCalls.toList();
+  }
+
+  /// Applies [change] to [session]'s state (and, without the experiment or
+  /// out of a call, to every call's and the next call's), then makes the
+  /// next call start like this one.
+  List<VoipSession> _change(
+      VoipSession? session, void Function(CallAudio audio) change) {
+    final targets = _targets(session);
+    for (final target in targets) {
+      change(audioOf(target));
+    }
+    if (!perCall || session == null) {
+      change(_next);
+    } else {
+      _next.copyFrom(audioOf(session));
+    }
+    return targets;
+  }
+
+  /// Vommet: push to talk (see [PushToTalk]). The microphone of every call
+  /// that isn't muted follows it.
+  late final PushToTalk pushToTalk = PushToTalk(_onTalkChanged);
+
+  /// Whether [audio]'s microphone is off: muted, or push to talk is on and
+  /// not held.
+  bool _micOff(CallAudio audio) =>
+      audio.muted || (pushToTalk.isOn && !pushToTalk.talking);
+
+  /// Whether push to talk is sending into [session] right now (for the call
+  /// bar's talk button).
+  bool isTalkingIn(VoipSession session) =>
+      pushToTalk.talking && !audioOf(session).muted;
+
+  Player? _talkStartPlayer;
+  Player? _talkStopPlayer;
+
+  void _onTalkChanged(bool talking) {
+    final calls = _liveCalls.toList();
+    _applyMicrophones(calls);
+    if (playSounds &&
+        preferences.voipPushToTalkSounds.value &&
+        calls.any((call) => !audioOf(call).muted)) {
+      talking
+          ? _playPreloaded(
+              SoundEvent.talkStart, _talkStartPlayer ??= _preloadPlayer())
+          : _playPreloaded(
+              SoundEvent.talkStop, _talkStopPlayer ??= _preloadPlayer());
+    }
+    _onSelfAudioChanged.add(null);
+  }
+
+  Future<void> _applyMicrophones(List<VoipSession> sessions) async {
+    await Future.wait(sessions.map((session) async {
+      final audio = audioOf(session);
+      // Vommet: with push to talk the microphone is published muted up
+      // front, so the first press sends at once.
+      if (pushToTalk.isOn &&
+          !audio.muted &&
+          session is MatrixLivekitVoipSession) {
+        audio.applying++;
+        try {
+          await session.preparePushToTalk();
+        } finally {
+          audio.applying--;
+        }
+      }
+      final off = _micOff(audio);
+      if (session.isMicrophoneMuted == off) return;
+      // While our own change lands, [_followSessionMute] must not read the
+      // not-yet-updated session as the user's choice (deafen would undo
+      // itself).
+      audio.applying++;
+      try {
+        if (pushToTalk.isOn && session is MatrixLivekitVoipSession) {
+          await session.setPushToTalkMicrophone(off);
+        } else {
+          await session.setMicrophoneMute(off);
+        }
+      } finally {
+        audio.applying--;
+      }
+    }));
+  }
+
+  /// The call view mutes its session directly; follow it, so the panel's
+  /// buttons and the next call match. Unmuting there also undeafens.
+  void _followSessionMute(VoipSession session) {
+    final audio = audioOf(session);
+    if (audio.applying > 0 || session.state != VoipState.connected) return;
+    final muted = session.isMicrophoneMuted;
+    // Vommet: with push to talk the microphone is off while the key isn't
+    // held. A change made outside (a mic button that mutes the session
+    // itself) still counts: muting mutes, unmuting only lifts the mute and
+    // push to talk decides again.
+    if (pushToTalk.isOn) {
+      if (muted == _micOff(audio)) return;
+      setMutedIn(session, muted);
+      return;
+    }
+    if (muted == audio.muted) return;
+
+    var undeafened = false;
+    void follow(CallAudio a) {
+      a.muted = muted;
+      if (!muted && a.deafened) {
+        a.deafened = false;
+        undeafened = true;
+      }
+    }
+
+    if (perCall) {
+      follow(audio);
+      _next.copyFrom(audio);
+    } else {
+      // One state for every call, as before: the others' microphones are
+      // left as they are, their state follows.
+      for (final target in _liveCalls) {
+        follow(audioOf(target));
+      }
+      follow(_next);
+    }
+    if (undeafened) refreshPlaybackVolumes();
+    _onSelfAudioChanged.add(null);
+  }
+
+  /// Mutes or unmutes [session] (the focused call by default; the next call
+  /// out of one). Unmuting while deafened also undeafens.
+  void setMutedIn(VoipSession? session, bool muted) {
+    var undeafened = false;
+    final targets = _change(session, (a) {
+      if (!muted && a.deafened) {
+        a.deafened = false;
+        undeafened = true;
+      }
+      a.muted = muted;
+    });
+    _applyMicrophones(targets);
+    if (undeafened) refreshPlaybackVolumes();
+    _onSelfAudioChanged.add(null);
+    muted ? playMuteSound() : playUnmuteSound();
+  }
+
+  /// Deafen silences everyone in the call and mutes the microphone;
+  /// undeafening unmutes only if deafen did the muting.
+  void setDeafenedIn(VoipSession? session, bool deafened) {
+    final current = session == null ? _next : audioOf(session);
+    if (current.deafened == deafened) return;
+    final targets = _change(session, (a) {
+      if (a.deafened == deafened) return;
+      if (deafened) {
+        a.mutedBeforeDeafen = a.muted;
+        a.deafened = true;
+        a.muted = true;
+      } else {
+        a.deafened = false;
+        if (!a.mutedBeforeDeafen) a.muted = false;
+      }
+    });
+    _applyMicrophones(targets);
+    refreshPlaybackVolumes();
+    _onSelfAudioChanged.add(null);
+    playCallSound(deafened ? SoundEvent.deafen : SoundEvent.undeafen);
+  }
+
+  /// After experiment_call_cards changes: turned off, every call takes the
+  /// focused call's state (one state again).
+  void syncAudioMode() {
+    if (!perCall) {
+      final state = _focusedAudio.copy();
+      final calls = _liveCalls.toList();
+      for (final call in calls) {
+        audioOf(call).copyFrom(state);
+      }
+      _next.copyFrom(state);
+      _applyMicrophones(calls);
+    }
+    refreshPlaybackVolumes();
+    _onSelfAudioChanged.add(null);
+  }
+
+  void toggleMuteIn(VoipSession session) =>
+      setMutedIn(session, !isMutedIn(session));
+
+  void toggleDeafenIn(VoipSession session) =>
+      setDeafenedIn(session, !isDeafenedIn(session));
+
+  /// Output volume for everyone in a call (Discord's output volume slider).
+  double get outputVolume => preferences.voipOutputVolume.value;
+
+  /// Re-applies every call's playback volumes, after deafen or the output
+  /// volume changed.
+  void refreshPlaybackVolumes() {
+    for (var session in currentSessions) {
+      for (var stream in session.streams) {
+        stream.applyPlaybackVolume();
+      }
+      _silenceIfDeafened(session);
+    }
+  }
+
+  // The user panel and the shortcuts: the focused call (or the next one).
+  void mute() => setMutedIn(focusedCall, true);
+
+  void unmute() => setMutedIn(focusedCall, false);
+
+  void toggleMute() => isMuted ? unmute() : mute();
+
+  void setDeafened(bool deafened) => setDeafenedIn(focusedCall, deafened);
+
+  void toggleDeafen() => setDeafened(!isDeafened);
+
+  /// Off in unit tests (no audio player there).
+  bool playSounds = true;
+
+  void playMuteSound() {
+    if (!playSounds) return;
+    _playPreloaded(SoundEvent.mute, muteSoundPlayer ??= _preloadPlayer());
+  }
+
+  void playUnmuteSound() {
+    if (!playSounds) return;
+    _playPreloaded(SoundEvent.unmute, unmuteSoundPlayer ??= _preloadPlayer());
+  }
+
+  /// Vommet: mute and unmute keep their own players so they start at once;
+  /// a player reopens only when the chosen sound changed.
+  final Map<Player, String> _preloaded = {};
+
+  Player _preloadPlayer() {
+    final player = Player(configuration: PlayerConfiguration());
+    player.setPlaylistMode(PlaylistMode.none);
+    return player;
+  }
+
+  void _playPreloaded(SoundEvent event, Player player) {
+    final uri = AppSounds.source(event);
+    if (uri == null) return;
+    player.setVolume(preferences.notificationsVolume.value);
+    if (_preloaded[player] != uri) {
+      _preloaded[player] = uri;
+      player.open(Media(uri));
+      return;
+    }
+    player.seek(Duration.zero);
+    player.play();
+  }
+
+  void _selfLeaveSound() {
+    if (!playSounds) return;
+    final sound = AppSounds.media(SoundEvent.selfLeave);
+    if (sound == null) return;
+    player = getSoundPlayer();
+    player?.open(sound);
+    player?.setPlaylistMode(PlaylistMode.none);
+  }
+
+  void stopRingtone() {
+    player?.stop();
+    player?.dispose();
+    player = null;
+  }
+
+  void onCallStateChanged(VoipSession event) {
+    if (event.state == VoipState.connected ||
+        event.state == VoipState.connecting) {
+      stopRingtone();
+    }
+
+    if (event.state == VoipState.connected) {
+      _selfJoinSound();
+    }
+  }
+
+  Player getSoundPlayer() {
+    player ??= Player(configuration: PlayerConfiguration());
+    player!.setVolume(preferences.notificationsVolume.value);
+
+    return player!;
+  }
+}
+
+/// Vommet: one call's mute and deafen (see [CallManager.audioOf]).
+class CallAudio {
+  bool muted = false;
+  bool deafened = false;
+
+  /// Whether the microphone was muted before deafening, so undeafening only
+  /// unmutes when deafen did the muting.
+  bool mutedBeforeDeafen = false;
+
+  /// Our own microphone changes still landing on the session.
+  int applying = 0;
+
+  /// The call's streams when its volumes were last applied.
+  List<VoipStream> streams = const [];
+
+  CallAudio copy() => CallAudio()..copyFrom(this);
+
+  void copyFrom(CallAudio other) {
+    muted = other.muted;
+    deafened = other.deafened;
+    mutedBeforeDeafen = other.mutedBeforeDeafen;
+  }
+}
