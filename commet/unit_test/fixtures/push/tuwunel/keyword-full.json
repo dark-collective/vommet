@@ -1,0 +1,30 @@
+{
+  "notification": {
+    "event_id": "$event-keyword",
+    "room_id": "!room-group:example.org",
+    "type": "m.room.message",
+    "sender": "@bob:example.org",
+    "sender_display_name": "bob",
+    "room_name": "Group room",
+    "content": {
+      "body": "about pushkwmvzf7kox now",
+      "msgtype": "m.text"
+    },
+    "counts": {
+      "unread": 15
+    },
+    "devices": [
+      {
+        "app_id": "it.vommet.push.full",
+        "pushkey": "pushkey-full",
+        "data": {
+          "local_client_id": "client-alice"
+        },
+        "tweaks": {
+          "highlight": true,
+          "sound": "default"
+        }
+      }
+    ]
+  }
+}
