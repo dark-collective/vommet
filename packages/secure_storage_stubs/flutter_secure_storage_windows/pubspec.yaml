@@ -1,0 +1,26 @@
+# Vommet: an empty stand-in for flutter_secure_storage's Windows
+# implementation. On Windows Vommet keeps its local data key in Windows DPAPI
+# (its own crypt32 bindings), see commet/lib/security/key_vault/, and never
+# calls flutter_secure_storage; the real package needs win32 6, which other dependencies
+# don't allow yet. See ../README.md.
+name: flutter_secure_storage_windows
+description: Empty Windows stand-in for flutter_secure_storage (Vommet).
+version: 0.0.0+vommet.1
+publish_to: none
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+# A Dart-only plugin (no native code), so flutter_secure_storage's default
+# package resolves and nothing is built or linked.
+flutter:
+  plugin:
+    implements: flutter_secure_storage
+    platforms:
+      windows:
+        dartPluginClass: FlutterSecureStorageWindowsStub
